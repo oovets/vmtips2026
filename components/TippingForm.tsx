@@ -8,7 +8,7 @@ import {
   type ResultRef,
   type Standing,
 } from "@/lib/standings";
-import { resolveR32Participants, buildValidatedTree } from "@/lib/bracket";
+import { resolveR32Participants, buildValidatedTree, completeBracket } from "@/lib/bracket";
 import { BRACKET } from "@/lib/bracket-template";
 import { BracketBuilder } from "./BracketBuilder";
 import { TeamLabel, type TeamLite } from "./TeamPill";
@@ -114,6 +114,44 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted }:
       else next[n] = teamId;
       return next;
     });
+    setMsg(null);
+  }
+
+  // Slumpat resultat, viktat mot låga mål (realistiskt)
+  function randomScore() {
+    const table = [0, 0, 1, 1, 1, 2, 2, 3];
+    const g = () => table[Math.floor(Math.random() * table.length)];
+    return { h: g(), a: g() };
+  }
+
+  // Slumpad vinnare, lätt viktad efter FIFA-ranking (favorit oftare men skrällar möjliga)
+  function randomWinner(homeId: string, awayId: string): string {
+    const hr = teamsById[homeId]?.fifaRank ?? 50;
+    const ar = teamsById[awayId]?.fifaRank ?? 50;
+    const pHome = 1 / hr / (1 / hr + 1 / ar);
+    return Math.random() < pHome ? homeId : awayId;
+  }
+
+  // Fyll tomma gruppmatcher med slumpade resultat (valfri grupp, annars alla)
+  function randomizeScores(onlyLetter?: string) {
+    setScores((prev) => {
+      const next = { ...prev };
+      for (const m of groupMatches) {
+        if (onlyLetter && m.groupId !== onlyLetter) continue;
+        const s = prev[m.matchNumber];
+        if (!s || s.h == null || s.a == null) {
+          const r = randomScore();
+          next[m.matchNumber] = { h: r.h, a: r.a };
+        }
+      }
+      return next;
+    });
+    setMsg(null);
+  }
+
+  // Slumpa vinnare för återstående slutspelsmatcher (cascade upp till final)
+  function randomizeBracketRest() {
+    setKoWinners((prev) => completeBracket(r32, prev, randomWinner, false) as Record<number, string>);
     setMsg(null);
   }
 
@@ -223,22 +261,40 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted }:
       </div>
 
       {tab === "group" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {groups.map((g) => (
-            <GroupCard
-              key={g.letter}
-              letter={g.letter}
-              matches={g.matches}
-              teamsById={teamsById}
-              standings={standingsMap[g.letter]}
-              scores={scores}
-              onScore={setScore}
-              complete={groupFilled[g.letter] === 6}
-            />
-          ))}
-        </div>
+        <>
+          {filledTotal < 72 && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-white/10 px-3 py-2 text-sm text-slate-400">
+              <span>Vet du inte / orkar inte? Slumpa de matcher du lämnat tomma.</span>
+              <button onClick={() => randomizeScores()} className="btn-ghost shrink-0 py-1.5 text-xs">
+                🎲 Slumpa alla tomma
+              </button>
+            </div>
+          )}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {groups.map((g) => (
+              <GroupCard
+                key={g.letter}
+                letter={g.letter}
+                matches={g.matches}
+                teamsById={teamsById}
+                standings={standingsMap[g.letter]}
+                scores={scores}
+                onScore={setScore}
+                onRandomize={() => randomizeScores(g.letter)}
+                complete={groupFilled[g.letter] === 6}
+              />
+            ))}
+          </div>
+        </>
       ) : allComplete ? (
-        <BracketBuilder teamsById={teamsById} resolved={tree.resolved} winners={tree.winners} onPick={pickWinner} />
+        <BracketBuilder
+          teamsById={teamsById}
+          resolved={tree.resolved}
+          winners={tree.winners}
+          onPick={pickWinner}
+          randomWinner={randomWinner}
+          onRandomizeRest={randomizeBracketRest}
+        />
       ) : (
         <div className="card p-6 text-center text-slate-300">
           Fyll i resultatet i <strong>alla 72 gruppmatcher</strong> så genereras ditt slutspelsträd
@@ -270,6 +326,7 @@ function GroupCard({
   standings,
   scores,
   onScore,
+  onRandomize,
   complete,
 }: {
   letter: string;
@@ -278,13 +335,20 @@ function GroupCard({
   standings: Standing[];
   scores: Record<number, ScoreVal>;
   onScore: (n: number, side: "h" | "a", v: string) => void;
+  onRandomize: () => void;
   complete: boolean;
 }) {
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-bold">Grupp {letter}</h2>
-        {complete && <span className="chip bg-pitch-500/15 text-pitch-200">klar ✓</span>}
+        {complete ? (
+          <span className="chip bg-pitch-500/15 text-pitch-200">klar ✓</span>
+        ) : (
+          <button onClick={onRandomize} className="btn-ghost py-1 text-xs" title="Slumpa tomma matcher i gruppen">
+            🎲 Slumpa
+          </button>
+        )}
       </div>
 
       <div className="space-y-2">

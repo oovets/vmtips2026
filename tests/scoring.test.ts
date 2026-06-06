@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { scoreGroupMatch, computeScore, SCORING, type ScoringInput } from "../lib/scoring";
 import { computeGroupStandings, bestThirds, type Standing } from "../lib/standings";
-import { resolveR32Participants, buildValidatedTree } from "../lib/bracket";
+import { resolveR32Participants, buildValidatedTree, completeBracket } from "../lib/bracket";
 
 describe("scoreGroupMatch", () => {
   it("ger full pott för exakt resultat", () => {
@@ -91,6 +91,28 @@ describe("buildValidatedTree", () => {
     expect(winners[73]).toBeUndefined();
     const ok = buildValidatedTree(r32 as any, { 73: "x" });
     expect(ok.winners[73]).toBe("x");
+  });
+});
+
+describe("completeBracket", () => {
+  const r32: Record<number, { homeTeamId: string; awayTeamId: string }> = {};
+  for (let n = 73; n <= 88; n++) r32[n] = { homeTeamId: `h${n}`, awayTeamId: `a${n}` };
+
+  it("fyller hela trädet till en mästare", () => {
+    const winners = completeBracket(r32 as any, {}, (home) => home);
+    expect(Object.keys(winners)).toHaveLength(32); // alla R32→final
+    expect(winners[104]).toBeDefined(); // mästare satt
+  });
+
+  it("rör inte befintliga giltiga val när overwrite=false", () => {
+    const winners = completeBracket(r32 as any, { 73: "a73" }, (home) => home, false);
+    expect(winners[73]).toBe("a73"); // behålls
+    expect(winners[74]).toBe("h74"); // tom fylls med pick
+  });
+
+  it("skriver över allt när overwrite=true", () => {
+    const winners = completeBracket(r32 as any, { 73: "a73" }, (home) => home, true);
+    expect(winners[73]).toBe("h73");
   });
 });
 

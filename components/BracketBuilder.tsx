@@ -10,6 +10,8 @@ interface Props {
   resolved: Participants; // deltagare per slutspelsmatch
   winners: Winners; // validerade vinnarval
   onPick: (matchNumber: number, teamId: string) => void;
+  randomWinner?: (homeTeamId: string, awayTeamId: string) => string;
+  onRandomizeRest?: () => void;
   readOnly?: boolean;
 }
 
@@ -21,7 +23,15 @@ const COLUMNS: { stage: string; title: string; short: string }[] = [
   { stage: "FINAL", title: "Final", short: "Final" },
 ];
 
-export function BracketBuilder({ teamsById, resolved, winners, onPick, readOnly }: Props) {
+export function BracketBuilder({
+  teamsById,
+  resolved,
+  winners,
+  onPick,
+  randomWinner,
+  onRandomizeRest,
+  readOnly,
+}: Props) {
   const [stage, setStage] = useState("R32");
   const champion = winners[104] ? teamsById[winners[104]] : null;
   const matchesOf = (s: string) => BRACKET.filter((b) => b.stage === s);
@@ -31,9 +41,25 @@ export function BracketBuilder({ teamsById, resolved, winners, onPick, readOnly 
     const home = part.homeTeamId ? teamsById[part.homeTeamId] : null;
     const away = part.awayTeamId ? teamsById[part.awayTeamId] : null;
     const w = winners[b.matchNumber];
+    const canRandom = !readOnly && randomWinner && part.homeTeamId && part.awayTeamId;
     return (
       <div className="card space-y-1 p-2">
-        <div className="px-1 text-[10px] text-slate-500">Match {b.matchNumber}</div>
+        <div className="flex items-center justify-between px-1">
+          <span className="text-[10px] text-slate-500">Match {b.matchNumber}</span>
+          {canRandom && (
+            <button
+              type="button"
+              title="Slumpa vinnare i den här matchen"
+              onClick={() => {
+                const rw = randomWinner!(part.homeTeamId!, part.awayTeamId!);
+                if (rw !== w) onPick(b.matchNumber, rw);
+              }}
+              className="text-xs opacity-60 transition hover:opacity-100"
+            >
+              🎲
+            </button>
+          )}
+        </div>
         <TeamPick
           team={home}
           placeholder={b.home}
@@ -56,17 +82,24 @@ export function BracketBuilder({ teamsById, resolved, winners, onPick, readOnly 
 
   return (
     <div className="space-y-4">
-      <div className="card p-4">
-        <div className="text-xs uppercase tracking-wide text-slate-400">Din världsmästare</div>
-        <div className="mt-1 text-xl font-extrabold sm:text-2xl">
-          {champion ? (
-            <span className="inline-flex items-center gap-2">
-              <span>{champion.flag}</span> {champion.code} 🏆
-            </span>
-          ) : (
-            <span className="text-base text-slate-500">Välj vinnare hela vägen till finalen…</span>
-          )}
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <div className="text-xs uppercase tracking-wide text-slate-400">Din världsmästare</div>
+          <div className="mt-1 text-xl font-extrabold sm:text-2xl">
+            {champion ? (
+              <span className="inline-flex items-center gap-2">
+                <span>{champion.flag}</span> {champion.code} 🏆
+              </span>
+            ) : (
+              <span className="text-base text-slate-500">Välj vinnare hela vägen till finalen…</span>
+            )}
+          </div>
         </div>
+        {!readOnly && onRandomizeRest && (
+          <button onClick={onRandomizeRest} className="btn-ghost shrink-0 py-1.5 text-xs" title="Slumpa vinnare för alla matcher du inte valt">
+            🎲 Slumpa återstående
+          </button>
+        )}
       </div>
 
       {/* MOBIL: en runda i taget */}

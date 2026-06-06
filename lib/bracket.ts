@@ -132,6 +132,49 @@ export function buildKnockoutTree(
   return resolved;
 }
 
+// Fyller i vinnare genom hela trädet med en injicerad väljare (pick). Går framåt
+// runda för runda så att varje vald vinnare propagerar till nästa match innan den
+// avgörs. overwrite=false → rör bara matcher som saknar giltigt val ("slumpa resten").
+// pick injiceras så funktionen förblir deterministiskt testbar.
+export function completeBracket(
+  r32: Participants,
+  winners: Winners,
+  pick: (homeTeamId: string, awayTeamId: string) => string,
+  overwrite = false,
+): Winners {
+  const resolved: Participants = {};
+  const out: Winners = { ...winners };
+
+  const side = (slot: string): string | null => {
+    if (slot.startsWith("W")) return out[parseInt(slot.slice(1), 10)] ?? null;
+    if (slot.startsWith("L")) {
+      const ref = parseInt(slot.slice(1), 10);
+      const w = out[ref];
+      const m = resolved[ref];
+      if (!w || !m) return null;
+      if (m.homeTeamId === w) return m.awayTeamId;
+      if (m.awayTeamId === w) return m.homeTeamId;
+      return null;
+    }
+    return null;
+  };
+
+  for (const b of BRACKET) {
+    const part =
+      b.stage === "R32"
+        ? r32[b.matchNumber] ?? { homeTeamId: null, awayTeamId: null }
+        : { homeTeamId: side(b.home), awayTeamId: side(b.away) };
+    resolved[b.matchNumber] = part;
+
+    if (part.homeTeamId && part.awayTeamId) {
+      const cur = out[b.matchNumber];
+      const valid = cur === part.homeTeamId || cur === part.awayTeamId;
+      if (overwrite || !valid) out[b.matchNumber] = pick(part.homeTeamId, part.awayTeamId);
+    }
+  }
+  return out;
+}
+
 // Vilka lag som nått varje runda enligt ett (tippat eller verkligt) träd.
 export function teamsReachingStages(
   resolved: Participants,
