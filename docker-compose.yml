@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vmtips-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vmtips
+      POSTGRES_PASSWORD: vmtips
+      POSTGRES_DB: vmtips
+    ports:
+      - "5439:5432"
+    volumes:
+      - vmtips-pgdata:/var/lib/postgresql/data
+
+volumes:
+  vmtips-pgdata:
