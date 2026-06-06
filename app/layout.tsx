@@ -40,7 +40,10 @@ export default async function RootLayout({
         />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 pb-28 sm:py-10 sm:pb-10">{children}</main>
         <footer className="mx-auto max-w-6xl px-4 pb-28 pt-6 text-center text-xs text-slate-500 sm:pb-10">
-          VM-tips 2026 · data: openfootball + football-data.org · byggt med Next.js
+          VM-tips 2026 · data: openfootball + football-data.org ·{" "}
+          <a href="/admin" className="hover:text-slate-300 hover:underline">
+            Admin
+          </a>
         </footer>
       </body>
     </html>

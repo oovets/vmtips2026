@@ -1,14 +1,18 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/session";
+import { getCurrentUser, isAdminAuthed } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { AdminPanel } from "@/components/AdminPanel";
+import { AdminLogin } from "@/components/AdminLogin";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
-  if (!user.isAdmin) redirect("/mitt-lag");
+  const adminAuthed = await isAdminAuthed();
+
+  // Global admin (PIN-session) ELLER en liga-admin släpps in. Annars: PIN-login.
+  if (!adminAuthed && !user?.isAdmin) {
+    return <AdminLogin />;
+  }
 
   const matches = await prisma.match.findMany({
     include: { homeTeam: true, awayTeam: true },

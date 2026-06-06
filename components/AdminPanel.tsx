@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface MatchRow {
   matchNumber: number;
@@ -16,7 +17,7 @@ interface MatchRow {
 }
 
 export function AdminPanel({ matches }: { matches: MatchRow[] }) {
-  const [pin, setPin] = useState("");
+  const router = useRouter();
   const [rows, setRows] = useState(matches);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -26,13 +27,18 @@ export function AdminPanel({ matches }: { matches: MatchRow[] }) {
     setRows((prev) => prev.map((r) => (r.matchNumber === n ? { ...r, ...patch } : r)));
   }
 
+  async function logout() {
+    await fetch("/api/admin/logout", { method: "POST" });
+    router.refresh();
+  }
+
   async function call(url: string, body?: object) {
     setBusy(true);
     setMsg(null);
     try {
       const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-pin": pin },
+        headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined,
       });
       const data = await res.json();
@@ -68,29 +74,22 @@ export function AdminPanel({ matches }: { matches: MatchRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="card flex flex-wrap items-end gap-3 p-4">
-        <label className="block">
-          <span className="mb-1 block text-xs text-slate-400">Admin-PIN</span>
-          <input
-            type="password"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            className="input w-40"
-            placeholder="ADMIN_PIN"
-          />
-        </label>
-        <button onClick={() => call("/api/admin/sync")} disabled={busy || !pin} className="btn-primary">
+      <div className="card flex flex-wrap items-center gap-3 p-4">
+        <button onClick={() => call("/api/admin/sync")} disabled={busy} className="btn-primary">
           🔄 Synka från API
         </button>
-        <button onClick={() => call("/api/admin/recompute")} disabled={busy || !pin} className="btn-ghost">
+        <button onClick={() => call("/api/admin/recompute")} disabled={busy} className="btn-ghost">
           🧮 Räkna om poäng
         </button>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="input ml-auto w-48"
+          className="input ml-auto w-44"
           placeholder="Filtrera matcher…"
         />
+        <button onClick={logout} className="btn-ghost text-xs">
+          Logga ut admin
+        </button>
       </div>
       {msg && <p className="rounded-lg bg-white/5 px-4 py-2 text-sm">{msg}</p>}
 
@@ -129,7 +128,7 @@ export function AdminPanel({ matches }: { matches: MatchRow[] }) {
                 </select>
               )}
               {r.status === "FINISHED" && <span className="chip text-pitch-300">✓</span>}
-              <button onClick={() => saveResult(r)} disabled={busy || !pin} className="btn-ghost h-8 py-0 text-xs">
+              <button onClick={() => saveResult(r)} disabled={busy} className="btn-ghost h-8 py-0 text-xs">
                 Spara
               </button>
             </div>
