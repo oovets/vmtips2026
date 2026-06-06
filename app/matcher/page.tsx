@@ -35,7 +35,12 @@ export default async function MatcherPage() {
   // Gruppera efter datum
   const byDate = new Map<string, typeof matches>();
   for (const m of matches) {
-    const key = m.kickoff.toLocaleDateString("sv-SE", { weekday: "short", day: "numeric", month: "short" });
+    const key = m.kickoff.toLocaleDateString("sv-SE", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: "Europe/Stockholm",
+    });
     (byDate.get(key) ?? byDate.set(key, []).get(key)!).push(m);
   }
 
@@ -66,7 +71,7 @@ export default async function MatcherPage() {
               return (
                 <div key={m.id} className="px-3 py-2.5 sm:px-4">
                   <div className="mb-1 flex items-center gap-2 text-[11px] text-slate-500">
-                    <span>{m.kickoff.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}</span>
+                    <span>{m.kickoff.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Stockholm" })}</span>
                     <span className="chip">{STAGE_LABEL[m.stage]}</span>
                     {live && <span className="chip bg-red-500/20 text-red-300">LIVE</span>}
                   </div>

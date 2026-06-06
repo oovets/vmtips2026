@@ -33,7 +33,11 @@ export default async function HomePage() {
           ) : (
             <>⏱️ Tipsen låses{" "}
               <strong>
-                {lock.toLocaleString("sv-SE", { dateStyle: "medium", timeStyle: "short" })}
+                {lock.toLocaleString("sv-SE", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                  timeZone: "Europe/Stockholm",
+                })}
               </strong>{" "}
               (första avspark).
             </>
@@ -41,7 +45,7 @@ export default async function HomePage() {
         </p>
       </div>
 
-      <div className="order-1 md:order-2">
+      <div id="auth" className="order-1 scroll-mt-24 md:order-2">
         <AuthForms />
       </div>
     </div>

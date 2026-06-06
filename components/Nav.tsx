@@ -76,9 +76,9 @@ export function Nav({ user }: Props) {
                 </button>
               </>
             ) : (
-              <Link href="/" className="btn-primary py-1.5 text-xs">
+              <a href="/#auth" className="btn-primary py-1.5 text-xs">
                 Logga in
-              </Link>
+              </a>
             )}
           </div>
         </div>
