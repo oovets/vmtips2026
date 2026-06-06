@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { BRACKET, type BracketSlot } from "@/lib/bracket-template";
 import type { Participants, Winners } from "@/lib/bracket";
+import { DiceIcon } from "./DiceIcon";
 import { TeamPick, type TeamLite } from "./TeamPill";
 
 interface Props {
@@ -56,7 +57,7 @@ export function BracketBuilder({
               }}
               className="text-xs opacity-60 transition hover:opacity-100"
             >
-              🎲
+              <DiceIcon />
             </button>
           )}
         </div>
@@ -88,7 +89,7 @@ export function BracketBuilder({
           <div className="mt-1 text-xl font-extrabold sm:text-2xl">
             {champion ? (
               <span className="inline-flex items-center gap-2">
-                <span>{champion.flag}</span> {champion.code} 🏆
+                <span>{champion.flag}</span> {champion.code}
               </span>
             ) : (
               <span className="text-base text-slate-500">Välj vinnare hela vägen till finalen…</span>
@@ -96,8 +97,8 @@ export function BracketBuilder({
           </div>
         </div>
         {!readOnly && onRandomizeRest && (
-          <button onClick={onRandomizeRest} className="btn-ghost shrink-0 py-1.5 text-xs" title="Slumpa vinnare för alla matcher du inte valt">
-            🎲 Slumpa återstående
+          <button onClick={onRandomizeRest} className="btn-ghost btn-sm shrink-0" title="Slumpa vinnare för alla matcher du inte valt">
+            Slumpa återstående
           </button>
         )}
       </div>

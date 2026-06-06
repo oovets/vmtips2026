@@ -1,5 +1,6 @@
 # Produktionsstack: app (Next.js) + Postgres + Caddy (auto-HTTPS).
 # Kör:  docker compose -f docker-compose.prod.yml up -d --build
+name: vmtips
 services:
   db:
     image: postgres:16

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isLocked } from "@/lib/lock";
 import { TippingForm } from "@/components/TippingForm";
+import type { FormEntry } from "@/components/TeamPill";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export default async function MittLagPage() {
 
   const [teams, groupMatches, matchPreds, bracketPreds] = await Promise.all([
     prisma.team.findMany({
-      select: { id: true, name: true, code: true, flag: true, fifaRank: true, groupId: true },
+      select: { id: true, name: true, code: true, flag: true, fifaRank: true, groupId: true, recentForm: true },
     }),
     prisma.match.findMany({
       where: { stage: "GROUP" },
@@ -26,15 +27,37 @@ export default async function MittLagPage() {
     prisma.bracketPrediction.findMany({ where: { userId: user.id } }),
   ]);
 
+  const tippingMode = user.league.tippingMode as "EXACT" | "X12";
+
   const scores: Record<number, { h: number; a: number }> = {};
-  for (const p of matchPreds) scores[p.match.matchNumber] = { h: p.predHome, a: p.predAway };
+  const outcomes: Record<number, "1" | "X" | "2"> = {};
+
+  for (const p of matchPreds) {
+    const n = p.match.matchNumber;
+    if (p.predHome != null && p.predAway != null) {
+      scores[n] = { h: p.predHome, a: p.predAway };
+    }
+    if (p.predOutcome) {
+      outcomes[n] = p.predOutcome as "1" | "X" | "2";
+    }
+  }
 
   const koWinners: Record<number, string> = {};
   for (const b of bracketPreds) if (b.winnerTeamId) koWinners[b.matchNumber] = b.winnerTeamId;
 
+  const mappedTeams = teams.map((t) => ({
+    id: t.id,
+    name: t.name,
+    code: t.code,
+    flag: t.flag,
+    fifaRank: t.fifaRank,
+    groupId: t.groupId,
+    recentForm: Array.isArray(t.recentForm) ? (t.recentForm as unknown as FormEntry[]) : [],
+  }));
+
   return (
     <TippingForm
-      teams={teams}
+      teams={mappedTeams}
       groupMatches={groupMatches.map((m) => ({
         matchNumber: m.matchNumber,
         groupId: m.groupId!,
@@ -42,9 +65,10 @@ export default async function MittLagPage() {
         awayTeamId: m.awayTeamId!,
         kickoff: m.kickoff.toISOString(),
       }))}
-      initial={{ scores, koWinners }}
+      initial={{ scores, outcomes, koWinners }}
       locked={isLocked()}
       submitted={user.submitted}
+      tippingMode={tippingMode}
     />
   );
 }

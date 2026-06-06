@@ -18,16 +18,16 @@ const cookieOpts = {
   path: "/",
 };
 
-export async function signToken(userId: string): Promise<string> {
-  return new SignJWT({ sub: userId })
+export async function signToken(userId: string, allIds?: string[]): Promise<string> {
+  return new SignJWT({ sub: userId, all: allIds ?? [userId] })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("60d")
     .sign(secret);
 }
 
-export async function setSessionCookie(userId: string) {
-  const token = await signToken(userId);
+export async function setSessionCookie(userId: string, allIds?: string[]) {
+  const token = await signToken(userId, allIds ?? [userId]);
   cookies().set(COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -35,6 +35,20 @@ export async function setSessionCookie(userId: string) {
     path: "/",
     maxAge: 60 * 60 * 24 * 60,
   });
+}
+
+export async function getAllSessionUserIds(): Promise<string[]> {
+  const token = cookies().get(COOKIE)?.value;
+  if (!token) return [];
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    const all = payload.all;
+    if (Array.isArray(all)) return all as string[];
+    if (typeof payload.sub === "string") return [payload.sub];
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export function clearSessionCookie() {
@@ -59,8 +73,10 @@ export async function getCurrentUser() {
 
 // --- Global admin (server-operatör): inloggning enbart med ADMIN_PIN, oberoende av ligor ---
 
-export async function setAdminCookie() {
-  const token = await new SignJWT({ role: "admin" })
+// userId binds the admin cookie to the specific logged-in user.
+// Prevents: Stefan enters PIN → Olle logs in same browser → Olle gets admin.
+export async function setAdminCookie(userId: string) {
+  const token = await new SignJWT({ role: "admin", userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("30d")
@@ -73,11 +89,16 @@ export function clearAdminCookie() {
 }
 
 export async function isAdminAuthed(): Promise<boolean> {
-  const token = cookies().get(ADMIN_COOKIE)?.value;
-  if (!token) return false;
+  const adminToken = cookies().get(ADMIN_COOKIE)?.value;
+  if (!adminToken) return false;
   try {
-    const { payload } = await jwtVerify(token, secret);
-    return payload.role === "admin";
+    const { payload } = await jwtVerify(adminToken, secret);
+    if (payload.role !== "admin" || typeof payload.userId !== "string") return false;
+    // Verify the cookie belongs to the currently active session user
+    const sessionToken = cookies().get(COOKIE)?.value;
+    if (!sessionToken) return false;
+    const { payload: sp } = await jwtVerify(sessionToken, secret);
+    return sp.sub === payload.userId;
   } catch {
     return false;
   }

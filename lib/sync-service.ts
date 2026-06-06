@@ -2,8 +2,14 @@
 // uppdaterar mål/vinnare/status och räknar om alla poäng. Delas av cron- och admin-rutterna.
 
 import { prisma } from "./prisma";
-import { fetchWorldCupMatches } from "./football-api";
+import {
+  fetchWorldCupMatches,
+  fetchMatchDetails,
+  normalizeTeamName,
+  type MatchDetails,
+} from "./football-api";
 import { recomputeAllScores } from "./scoring-service";
+import { Prisma } from "@prisma/client";
 
 export async function syncResults(): Promise<{ matchesUpdated: number; playersScored: number }> {
   const apiMatches = await fetchWorldCupMatches();
@@ -50,4 +56,75 @@ export async function syncResults(): Promise<{ matchesUpdated: number; playersSc
 
   const playersScored = await recomputeAllScores();
   return { matchesUpdated: updated, playersScored };
+}
+
+// Vänder sidorna (HOME<->AWAY) när vår match är flippad mot API-svaret.
+function flipDetails(d: MatchDetails): MatchDetails {
+  const flip = (s: "HOME" | "AWAY") => (s === "HOME" ? "AWAY" : "HOME");
+  return {
+    goals: d.goals.map((g) => ({ ...g, side: flip(g.side) })),
+    cards: d.cards.map((c) => ({ ...c, side: flip(c.side) })),
+    shootout: d.shootout ? { home: d.shootout.away, away: d.shootout.home } : null,
+  };
+}
+
+// Hämtar matchdetaljer (målgörare, kort, straffar) för matcher med fixture-id.
+// Pågående matcher uppdateras varje körning; avslutade matcher hämtas en sista
+// gång (markeras `final`) och rörs sedan inte igen. Begränsas av `limit` för att
+// respektera API:ts rate-limit — resten backfillas nästa körning.
+// Kräver MATCH_DETAIL_ENDPOINT/-nyckel för att ge data.
+export async function syncMatchDetails(
+  opts: { limit?: number } = {},
+): Promise<{ detailsUpdated: number }> {
+  const limit = opts.limit ?? 10;
+
+  const rows = await prisma.match.findMany({
+    where: { apiId: { not: null }, status: { in: ["LIVE", "FINISHED"] } },
+    select: {
+      id: true,
+      apiId: true,
+      status: true,
+      details: true,
+      homeTeam: { select: { name: true } },
+      awayTeam: { select: { name: true } },
+    },
+    orderBy: { matchNumber: "asc" },
+  });
+
+  // LIVE hämtas alltid; FINISHED bara tills den hämtats efter slutsignal (final).
+  const worklist = rows
+    .filter((m) => {
+      if (m.status === "LIVE") return true;
+      const d = m.details as { final?: boolean } | null;
+      return !d || d.final !== true;
+    })
+    .slice(0, limit);
+
+  let detailsUpdated = 0;
+  for (const m of worklist) {
+    const fetched = await fetchMatchDetails(m.apiId!);
+    if (!fetched) continue; // nätverks-/HTTP-fel: försök igen nästa körning
+
+    const { apiHomeName, apiAwayName, ...details } = fetched;
+
+    // Upptäck om vår match är flippad mot API:t (jämför normaliserade lagnamn).
+    const ourHome = m.homeTeam?.name ?? null;
+    const ourAway = m.awayTeam?.name ?? null;
+    const flipped =
+      ourHome != null &&
+      ourAway != null &&
+      normalizeTeamName(apiHomeName) === ourAway &&
+      normalizeTeamName(apiAwayName) === ourHome;
+
+    const oriented: MatchDetails = flipped ? flipDetails(details) : details;
+    const stored = { ...oriented, final: m.status === "FINISHED" };
+
+    await prisma.match.update({
+      where: { id: m.id },
+      data: { details: stored as unknown as Prisma.InputJsonValue },
+    });
+    detailsUpdated++;
+  }
+
+  return { detailsUpdated };
 }

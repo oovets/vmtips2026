@@ -1,11 +1,8 @@
-// Manuell resultatinmatning / override (skyddsnät när API:t inte räcker till).
-// Skydd: header "x-admin-pin" måste matcha ADMIN_PIN.
-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { recomputeAllScores } from "@/lib/scoring-service";
-import { isAdminAuthed } from "@/lib/session";
+import { adminGuard } from "@/lib/admin-guard";
 
 const schema = z.object({
   matchNumber: z.number().int().min(1).max(104),
@@ -16,9 +13,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
-  if (!(await isAdminAuthed()) && req.headers.get("x-admin-pin") !== process.env.ADMIN_PIN) {
-    return NextResponse.json({ error: "Ej behörig" }, { status: 401 });
-  }
+  const deny = await adminGuard();
+  if (deny) return deny;
+
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Ogiltig input" }, { status: 400 });
@@ -29,11 +26,10 @@ export async function POST(req: Request) {
   const match = await prisma.match.findUnique({ where: { matchNumber } });
   if (!match) return NextResponse.json({ error: "Match saknas" }, { status: 404 });
 
-  // Avgör vinnare automatiskt om resultatet inte är oavgjort
   if (winnerTeamId === undefined || winnerTeamId === null) {
     if (homeScore > awayScore) winnerTeamId = match.homeTeamId;
     else if (awayScore > homeScore) winnerTeamId = match.awayTeamId;
-    else winnerTeamId = null; // oavgjort i grupp; slutspel kräver explicit vinnare (straffar)
+    else winnerTeamId = null;
   }
 
   await prisma.match.update({

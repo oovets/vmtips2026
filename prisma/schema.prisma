@@ -10,6 +10,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum TippingMode {
+  EXACT // tippa exakt resultat (default)
+  X12   // tippa bara 1 / X / 2
+}
+
 enum Stage {
   GROUP
   R32
@@ -27,20 +32,22 @@ enum MatchStatus {
 }
 
 model League {
-  id        String   @id @default(uuid())
-  name      String
-  joinCode  String   @unique
-  users     User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String      @id @default(uuid())
+  name        String
+  joinCode    String      @unique
+  tippingMode TippingMode @default(EXACT)
+  users       User[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 }
 
 model User {
   id          String   @id @default(uuid())
   displayName String
   pinHash     String
+  loginCode   String   @unique // personlig inloggningskod, visas för spelaren
   isAdmin     Boolean  @default(false)
-  submitted   Boolean  @default(false) // har spelaren lämnat in sitt lag?
+  submitted   Boolean  @default(false)
   league      League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   leagueId    String
 
@@ -63,13 +70,14 @@ model Group {
 }
 
 model Team {
-  id        String  @id @default(uuid())
-  name      String  @unique // matchar openfootball-namn, t.ex. "Sweden"
-  code      String // FIFA 3-bokstav, t.ex. "SWE"
-  flag      String // emoji-flagga
-  fifaRank  Int     @default(99) // för tiebreak av bästa treor
-  group     Group   @relation(fields: [groupId], references: [id])
-  groupId   String
+  id         String  @id @default(uuid())
+  name       String  @unique // matchar openfootball-namn, t.ex. "Sweden"
+  code       String // FIFA 3-bokstav, t.ex. "SWE"
+  flag       String // emoji-flagga
+  fifaRank   Int     @default(99) // för tiebreak av bästa treor
+  recentForm Json    @default("[]") // [{opp, oppFlag, score, result, date}]
+  group      Group   @relation(fields: [groupId], references: [id])
+  groupId    String
 
   homeMatches Match[] @relation("HomeTeam")
   awayMatches Match[] @relation("AwayTeam")
@@ -85,6 +93,7 @@ model Match {
   groupId     String?
   kickoff     DateTime
   venue       String
+  channel     String? // svensk sändningskanal, t.ex. "SVT", "TV4", "Viaplay" (null = okänd)
 
   // Gruppmatcher har lag direkt. Slutspelsmatcher har platshållare tills facit finns.
   homeTeam   Team?   @relation("HomeTeam", fields: [homeTeamId], references: [id])
@@ -101,6 +110,9 @@ model Match {
   winner     Team?       @relation("WinnerTeam", fields: [winnerTeamId], references: [id])
   winnerTeamId String?
   apiId      String? // football-data.org fixture-id för synk
+  // Matchdetaljer (målgörare, kort, straffsparksläggning) hämtas via MATCH_DETAIL_ENDPOINT.
+  // Form: { goals:[{side,player,minute,type,assist}], cards:[{side,player,minute,card}], shootout:{home,away}|null }
+  details    Json? // null = inte hämtad ännu
 
   matchPredictions MatchPrediction[]
 
@@ -108,15 +120,15 @@ model Match {
   updatedAt DateTime @updatedAt
 }
 
-// Exakt resultat-tips för en gruppmatch
 model MatchPrediction {
-  id       String @id @default(uuid())
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId   String
-  match    Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  matchId  String
-  predHome Int
-  predAway Int
+  id          String  @id @default(uuid())
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  match       Match   @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  matchId     String
+  predHome    Int?    // null i 1X2-läge
+  predAway    Int?    // null i 1X2-läge
+  predOutcome String? // "1" | "X" | "2" — används i 1X2-läge
 
   @@unique([userId, matchId])
 }

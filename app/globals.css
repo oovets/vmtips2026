@@ -18,13 +18,15 @@ h4,
 h5,
 h6 {
   font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  letter-spacing: -0.025em;
 }
 
 body {
   @apply overflow-x-hidden bg-night-950 text-slate-100 antialiased;
   background-image:
-    radial-gradient(60rem 60rem at 110% -10%, rgba(22, 163, 74, 0.12), transparent),
-    radial-gradient(50rem 50rem at -10% 0%, rgba(56, 189, 248, 0.08), transparent);
+    radial-gradient(70rem 50rem at 105% -5%, rgba(0, 106, 167, 0.28), transparent),
+    radial-gradient(60rem 40rem at -5% 5%, rgba(254, 204, 0, 0.12), transparent),
+    radial-gradient(40rem 40rem at 50% 100%, rgba(0, 106, 167, 0.10), transparent);
   background-attachment: fixed;
   -webkit-tap-highlight-color: transparent;
 }
@@ -36,7 +38,7 @@ body {
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-white/10 bg-night-900/70 shadow-xl backdrop-blur;
+    @apply rounded-2xl border border-pitch-500/20 bg-night-900/70 shadow-xl backdrop-blur;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
@@ -44,8 +46,19 @@ body {
   .btn-primary {
     @apply btn bg-pitch-500 text-white hover:bg-pitch-600;
   }
+  .btn-yellow {
+    @apply btn bg-flag-500 text-night-950 hover:bg-flag-600 font-bold;
+  }
   .btn-ghost {
     @apply btn border border-white/15 text-slate-200 hover:bg-white/5;
+  }
+  /* Kompakt variant för verktygsfält */
+  .btn-sm {
+    @apply rounded-lg px-3 py-1.5 text-xs font-semibold;
+  }
+  /* Kvadratisk ikonknapp (tärning, etc.) */
+  .btn-icon {
+    @apply inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/15 text-slate-300 transition hover:bg-white/5 disabled:opacity-40;
   }
   .input {
     @apply w-full rounded-xl border border-white/10 bg-night-950/60 px-3 py-2 text-base text-slate-100 outline-none placeholder:text-slate-500 focus:border-pitch-500 focus:ring-1 focus:ring-pitch-500;
@@ -55,6 +68,36 @@ body {
     @apply h-11 w-12 rounded-lg border border-white/10 bg-night-950/70 text-center text-base font-bold outline-none focus:border-pitch-500 focus:ring-1 focus:ring-pitch-500;
   }
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full bg-white/5 px-2.5 py-1 text-xs font-medium text-slate-300;
+    @apply inline-flex items-center gap-1 rounded-full bg-pitch-500/15 px-2.5 py-1 text-xs font-medium text-pitch-100 border border-pitch-500/30;
+  }
+}
+
+/* ── Utskrift / PDF-export ──────────────────────────────────────────────────
+   Visar enbart .print-doc (export-dokumentet) och döljer app-chrome (nav m.m.).
+   Bakgrundsfärger tvingas med för att accenter/markeringar ska synas i PDF:en. */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+  body {
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-doc,
+  .print-doc * {
+    visibility: visible;
+  }
+  .print-doc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-avoid-break {
+    break-inside: avoid;
   }
 }

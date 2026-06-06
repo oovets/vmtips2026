@@ -1,3 +1,11 @@
+export interface FormEntry {
+  result: "W" | "D" | "L";
+  opp: string;
+  oppFlag?: string;
+  score: string;
+  date: string;
+}
+
 export interface TeamLite {
   id: string;
   name: string;
@@ -5,6 +13,7 @@ export interface TeamLite {
   flag: string;
   fifaRank: number;
   groupId: string;
+  recentForm?: FormEntry[];
 }
 
 export function TeamLabel({

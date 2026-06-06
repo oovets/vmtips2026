@@ -5,6 +5,7 @@ import { PrismaClient, Stage } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TEAMS } from "../lib/teams";
+import { STATIC_FORM } from "../lib/team-form";
 
 const prisma = new PrismaClient();
 
@@ -44,6 +45,14 @@ function classifySide(s: string): { teamName?: string; slot?: string } {
   return s in TEAMS ? { teamName: s } : { slot: s };
 }
 
+// Svensk sändningskanal per match. Vi har ingen officiell rättighetsdata, så vi
+// fördelar deterministiskt utifrån matchnumret (samma match → samma kanal).
+// Justera fritt eller sätt korrekt kanal i admin när rättigheterna är klara.
+const SEED_CHANNELS = ["SVT", "TV4", "Viaplay"];
+function channelFor(matchNumber: number): string {
+  return SEED_CHANNELS[(matchNumber - 1) % SEED_CHANNELS.length];
+}
+
 async function main() {
   const dataPath = join(process.cwd(), "data", "worldcup2026.json");
   const raw = JSON.parse(readFileSync(dataPath, "utf-8")) as { matches: RawMatch[] };
@@ -73,6 +82,11 @@ async function main() {
     });
   }
 
+  // 2b. Lagform (statisk, seedad en gång)
+  for (const [code, form] of Object.entries(STATIC_FORM)) {
+    await prisma.team.updateMany({ where: { code }, data: { recentForm: form as object[] } });
+  }
+
   const teamByName = new Map(
     (await prisma.team.findMany()).map((t) => [t.name, t.id]),
   );
@@ -93,6 +107,7 @@ async function main() {
       groupId,
       kickoff: parseKickoff(rm.date, rm.time),
       venue: rm.ground,
+      channel: channelFor(n),
       homeTeamId: home.teamName ? teamByName.get(home.teamName)! : null,
       awayTeamId: away.teamName ? teamByName.get(away.teamName)! : null,
       homeSlot: home.slot ?? null,

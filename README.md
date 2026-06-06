@@ -51,6 +51,15 @@ i `.env` för att kunna tippa fritt under utveckling.
 - **Manuellt:** logga in som admin ( liga-skaparen) → fliken **Admin** → mata in resultat
   eller tryck "Synka från API". Kräver `ADMIN_PIN`.
 
+### Matchdetaljer (målgörare, kort, straffar)
+
+Matcher-sidan visar målgörare, kort och straffläggning per match när data finns.
+football-data.org:s gratisnivå saknar detaljnivån — sätt `MATCH_DETAIL_ENDPOINT`
+(URL-mall med `{id}` för fixture-id) mot ett API som har den. Default pekar på
+football-data.org:s match-endpoint (events fylls i på betald nivå). Detaljer hämtas
+best-effort vid varje resultatsynk (och via knappen **Synka matchdetaljer** i admin),
+och påverkar aldrig poängräkningen.
+
 ## Deploy
 
 Vercel + en hostad Postgres (t.ex. Neon). Sätt env-variablerna i Vercel-projektet

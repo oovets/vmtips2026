@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { hashPin, uniqueJoinCode } from "@/lib/auth";
+import { hashPin, uniqueJoinCode, uniqueLoginCode } from "@/lib/auth";
 import { setSessionCookie } from "@/lib/session";
 
 const schema = z.object({
   leagueName: z.string().trim().min(2).max(40),
   displayName: z.string().trim().min(2).max(24),
   pin: z.string().regex(/^\d{4}$/, "PIN måste vara 4 siffror"),
+  tippingMode: z.enum(["EXACT", "X12"]).optional().default("EXACT"),
 });
 
 export async function POST(req: Request) {
@@ -15,19 +16,21 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Ogiltig input" }, { status: 400 });
   }
-  const { leagueName, displayName, pin } = parsed.data;
+  const { leagueName, displayName, pin, tippingMode } = parsed.data;
 
   const joinCode = await uniqueJoinCode();
-  const league = await prisma.league.create({ data: { name: leagueName, joinCode } });
+  const loginCode = await uniqueLoginCode();
+
+  const league = await prisma.league.create({ data: { name: leagueName, joinCode, tippingMode } });
   const user = await prisma.user.create({
     data: {
       displayName,
       pinHash: hashPin(pin),
-      isAdmin: true,
+      loginCode,
       leagueId: league.id,
     },
   });
 
   await setSessionCookie(user.id);
-  return NextResponse.json({ ok: true, joinCode, leagueName: league.name });
+  return NextResponse.json({ ok: true, joinCode, loginCode, leagueName: league.name });
 }

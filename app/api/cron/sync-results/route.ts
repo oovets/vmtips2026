@@ -1,7 +1,7 @@
 // Pollas av Vercel Cron. Skydd: header "x-cron-secret", ?secret= eller Bearer = CRON_SECRET.
 
 import { NextResponse } from "next/server";
-import { syncResults } from "@/lib/sync-service";
+import { syncResults, syncMatchDetails } from "@/lib/sync-service";
 
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -17,7 +17,15 @@ function authorized(req: Request): boolean {
 export async function GET(req: Request) {
   if (!authorized(req)) return NextResponse.json({ error: "Obehörig" }, { status: 401 });
   try {
-    return NextResponse.json({ ok: true, ...(await syncResults()) });
+    const result = await syncResults();
+    // Best-effort: hämta matchdetaljer (målgörare/kort/straffar). Får aldrig fälla synken.
+    let detailsUpdated = 0;
+    try {
+      ({ detailsUpdated } = await syncMatchDetails());
+    } catch {
+      /* ignorera – detaljer är icke-kritiska och backfillas nästa körning */
+    }
+    return NextResponse.json({ ok: true, ...result, detailsUpdated });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

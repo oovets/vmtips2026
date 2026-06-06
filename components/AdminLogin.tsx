@@ -24,7 +24,7 @@ export function AdminLogin() {
         setError(data.error ?? "Fel admin-PIN");
         return;
       }
-      router.refresh();
+      window.location.reload();
     } catch {
       setError("Nätverksfel");
     } finally {
@@ -35,8 +35,7 @@ export function AdminLogin() {
   return (
     <div className="mx-auto max-w-sm space-y-5 py-8">
       <div className="text-center">
-        <div className="text-3xl">🛠️</div>
-        <h1 className="mt-2 text-2xl font-extrabold">Admin</h1>
+        <h1 className="text-2xl font-extrabold">Admin</h1>
         <p className="text-sm text-slate-400">Logga in med admin-PIN — ingen liga behövs.</p>
       </div>
       <form onSubmit={submit} className="card space-y-3 p-6">

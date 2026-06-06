@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { hashPin, verifyPin } from "@/lib/auth";
+import { hashPin, verifyPin, uniqueLoginCode } from "@/lib/auth";
 import { setSessionCookie } from "@/lib/session";
 
 const schema = z.object({
@@ -27,19 +27,22 @@ export async function POST(req: Request) {
   });
 
   let userId: string;
+  let loginCode: string;
+
   if (existing) {
-    // Befintligt namn -> logga in med rätt PIN
     if (!verifyPin(pin, existing.pinHash)) {
       return NextResponse.json({ error: "Fel PIN för det namnet" }, { status: 401 });
     }
     userId = existing.id;
+    loginCode = existing.loginCode;
   } else {
+    loginCode = await uniqueLoginCode();
     const user = await prisma.user.create({
-      data: { displayName, pinHash: hashPin(pin), leagueId: league.id },
+      data: { displayName, pinHash: hashPin(pin), loginCode, leagueId: league.id },
     });
     userId = user.id;
   }
 
   await setSessionCookie(userId);
-  return NextResponse.json({ ok: true, leagueName: league.name });
+  return NextResponse.json({ ok: true, loginCode, leagueName: league.name });
 }

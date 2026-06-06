@@ -86,7 +86,11 @@ export async function recomputeAllScores(): Promise<number> {
         predHome: p.predHome,
         predAway: p.predAway,
       }))
-      .filter((p) => p.matchNumber != null);
+      .filter((p) => p.matchNumber != null && p.predHome != null && p.predAway != null) as Array<{
+        matchNumber: number;
+        predHome: number;
+        predAway: number;
+      }>;
 
     const gPreds = (groupPredsByUser.get(user.id) ?? []).map((p) => ({
       groupId: p.groupId,

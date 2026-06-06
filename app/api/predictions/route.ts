@@ -4,17 +4,20 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 import { isLocked } from "@/lib/lock";
 
+const exactPred = z.object({
+  matchNumber: z.number().int(),
+  predHome: z.number().int().min(0).max(99),
+  predAway: z.number().int().min(0).max(99),
+});
+
+const x12Pred = z.object({
+  matchNumber: z.number().int(),
+  predOutcome: z.enum(["1", "X", "2"]),
+});
+
 const schema = z.object({
   submit: z.boolean().optional().default(false),
-  matchPreds: z
-    .array(
-      z.object({
-        matchNumber: z.number().int(),
-        predHome: z.number().int().min(0).max(99),
-        predAway: z.number().int().min(0).max(99),
-      }),
-    )
-    .default([]),
+  matchPreds: z.array(z.union([exactPred, x12Pred])).default([]),
   groupPreds: z
     .array(
       z.object({
@@ -54,10 +57,12 @@ export async function GET() {
   return NextResponse.json({
     submitted: user.submitted,
     locked: isLocked(),
+    tippingMode: user.league.tippingMode,
     matchPreds: matchPreds.map((p) => ({
       matchNumber: p.match.matchNumber,
       predHome: p.predHome,
       predAway: p.predAway,
+      predOutcome: p.predOutcome,
     })),
     groupPreds,
     bracketPreds,
@@ -77,7 +82,32 @@ export async function POST(req: Request) {
   }
   const { submit, matchPreds, groupPreds, bracketPreds } = parsed.data;
 
-  // matchNumber -> matchId (endast gruppmatcher tippas på resultat)
+  // Vid inlämning: kräv komplett tips (alla 72 gruppmatcher, 12 grupprankningar och
+  // hela slutspelsträdet). Bronsmatchen (#103) räknas inte — den går inte att tippa
+  // och ger inga poäng. Utkast får sparas ofullständiga.
+  if (submit) {
+    const groupMatchCount = matchPreds.filter((p) => p.matchNumber >= 1 && p.matchNumber <= 72).length;
+    const bracketWinnerCount = bracketPreds.filter((b) => b.winnerTeamId && b.matchNumber !== 103).length;
+    if (groupMatchCount < 72) {
+      return NextResponse.json(
+        { error: `Fyll i alla gruppmatcher innan inlämning (${groupMatchCount}/72).` },
+        { status: 400 },
+      );
+    }
+    if (groupPreds.length < 12) {
+      return NextResponse.json(
+        { error: "Alla grupper måste vara färdigtippade innan inlämning." },
+        { status: 400 },
+      );
+    }
+    if (bracketWinnerCount < 31) {
+      return NextResponse.json(
+        { error: `Slutför slutspelsträdet innan inlämning (${bracketWinnerCount}/31).` },
+        { status: 400 },
+      );
+    }
+  }
+
   const matches = await prisma.match.findMany({ select: { id: true, matchNumber: true } });
   const idByNumber = new Map(matches.map((m) => [m.matchNumber, m.id]));
 
@@ -86,17 +116,15 @@ export async function POST(req: Request) {
     prisma.matchPrediction.createMany({
       data: matchPreds
         .filter((p) => idByNumber.has(p.matchNumber))
-        .map((p) => ({
-          userId: user.id,
-          matchId: idByNumber.get(p.matchNumber)!,
-          predHome: p.predHome,
-          predAway: p.predAway,
-        })),
+        .map((p) => {
+          if ("predOutcome" in p) {
+            return { userId: user.id, matchId: idByNumber.get(p.matchNumber)!, predHome: null, predAway: null, predOutcome: p.predOutcome };
+          }
+          return { userId: user.id, matchId: idByNumber.get(p.matchNumber)!, predHome: p.predHome, predAway: p.predAway, predOutcome: null };
+        }),
     }),
     prisma.groupPrediction.deleteMany({ where: { userId: user.id } }),
-    prisma.groupPrediction.createMany({
-      data: groupPreds.map((g) => ({ userId: user.id, ...g })),
-    }),
+    prisma.groupPrediction.createMany({ data: groupPreds.map((g) => ({ userId: user.id, ...g })) }),
     prisma.bracketPrediction.deleteMany({ where: { userId: user.id } }),
     prisma.bracketPrediction.createMany({
       data: bracketPreds.map((b) => ({

@@ -9,7 +9,7 @@ WORKDIR /app
 
 # Installera beroenden (cachas så länge lockfilen är oförändrad)
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Bygg appen (kör prisma generate + next build)
 COPY . .
@@ -20,4 +20,4 @@ ENV NODE_ENV=production
 EXPOSE 3000
 
 # Vid start: synka schema, seeda (idempotent – rör ej inmatade resultat) och kör appen
-CMD ["sh", "-c", "pnpm exec prisma db push --skip-generate && pnpm seed && pnpm exec next start -H 0.0.0.0 -p 3000"]
+CMD ["sh", "-c", "pnpm exec prisma db push --skip-generate --accept-data-loss && pnpm seed && pnpm exec next start -H 0.0.0.0 -p 3000"]

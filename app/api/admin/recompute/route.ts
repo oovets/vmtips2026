@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import { recomputeAllScores } from "@/lib/scoring-service";
-import { isAdminAuthed } from "@/lib/session";
+import { adminGuard } from "@/lib/admin-guard";
 
-export async function POST(req: Request) {
-  if (!(await isAdminAuthed()) && req.headers.get("x-admin-pin") !== process.env.ADMIN_PIN) {
-    return NextResponse.json({ error: "Ej behörig" }, { status: 401 });
-  }
+export async function POST() {
+  const deny = await adminGuard();
+  if (deny) return deny;
   const scored = await recomputeAllScores();
   return NextResponse.json({ ok: true, playersScored: scored });
 }
