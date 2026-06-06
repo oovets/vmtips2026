@@ -1,0 +1,8 @@
+{
+	email stevoo@gmail.com
+}
+
+vm.stevoo.net {
+	encode gzip
+	reverse_proxy app:3000
+}
