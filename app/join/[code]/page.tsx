@@ -15,7 +15,6 @@ export default async function JoinPage({ params }: { params: { code: string } })
       <div className="mx-auto max-w-sm py-16 text-center space-y-3">
         <p className="text-4xl">🤔</p>
         <h1 className="text-xl font-bold">Ligan hittades inte</h1>
-        <p className="text-sm text-slate-400">Koden <strong>{code}</strong> verkar inte stämma. Kolla med den som bjöd in dig.</p>
         <a href="/" className="btn-primary inline-flex mt-2">Till startsidan</a>
       </div>
     );
@@ -26,9 +25,6 @@ export default async function JoinPage({ params }: { params: { code: string } })
       <div className="text-center space-y-1">
         <p className="text-3xl">🇸🇪</p>
         <h1 className="text-2xl font-extrabold">Du är inbjuden!</h1>
-        <p className="text-slate-300">
-          Gå med i <strong className="text-flag-500">{league.name}</strong> och börja tippa VM.
-        </p>
       </div>
       <AuthForms defaultTab="join" prefillCode={code} />
     </div>

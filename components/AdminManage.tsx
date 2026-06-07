@@ -48,6 +48,32 @@ export function AdminManage({ leagues: initial }: Props) {
     return { ok: res.ok, data };
   }
 
+  function tipsComplete(tips: TipStatus) {
+    return (
+      tips.matches >= tips.matchesTotal &&
+      tips.groups >= tips.groupsTotal &&
+      tips.bracket >= tips.bracketTotal
+    );
+  }
+
+  async function submitForUser(leagueId: string, user: UserRow) {
+    setBusy(user.id);
+    const { ok, data } = await api("POST", `/api/admin/users/${user.id}/submit`);
+    setBusy(null);
+    if (ok) {
+      setLeagues((prev) =>
+        prev.map((l) =>
+          l.id === leagueId
+            ? { ...l, users: l.users.map((u) => (u.id === user.id ? { ...u, submitted: true } : u)) }
+            : l,
+        ),
+      );
+      flash(`${user.displayName} är nu inlämnad.`);
+    } else {
+      flash(data.error ?? "Kunde inte lämna in åt spelaren.", false);
+    }
+  }
+
   async function deleteLeague(id: string) {
     setBusy(id);
     const { ok } = await api("DELETE", `/api/admin/leagues/${id}`);
@@ -221,6 +247,16 @@ export function AdminManage({ leagues: initial }: Props) {
                       <Link href={`/spelare/${user.id}`} className="btn-ghost btn-sm">
                         Visa tips
                       </Link>
+
+                      {!user.submitted && tipsComplete(user.tips) && (
+                        <button
+                          onClick={() => submitForUser(league.id, user)}
+                          disabled={busy === user.id}
+                          className="btn-primary btn-sm"
+                        >
+                          Lämna in åt spelare
+                        </button>
+                      )}
 
                       {/* Byt namn */}
                       <button

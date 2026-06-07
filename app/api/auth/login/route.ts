@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPin } from "@/lib/auth";
 import { setSessionCookie, getAllSessionUserIds } from "@/lib/session";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   displayName: z.string().trim().max(24).optional(),
@@ -12,6 +13,11 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // PIN är bara 4 siffror (10 000 kombinationer) — strypa gissningar hårt.
+  if (!rateLimit(`login:${clientIp(req)}`, 10, 60_000)) {
+    return NextResponse.json({ error: "För många försök — vänta en minut och försök igen." }, { status: 429 });
+  }
+
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Ogiltig input" }, { status: 400 });

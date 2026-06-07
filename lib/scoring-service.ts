@@ -10,9 +10,10 @@ import {
 } from "./standings";
 import { teamsReachingStages, type Winners } from "./bracket";
 import { computeScore, type ScoringInput, type Stage } from "./scoring";
+import { rankRows } from "./rank";
 
 export async function recomputeAllScores(): Promise<number> {
-  const [teams, matches, users, matchPreds, groupPreds, bracketPreds] =
+  const [teams, matches, users, matchPreds, groupPreds, bracketPreds, topScorerFact, existingScores] =
     await Promise.all([
       prisma.team.findMany(),
       prisma.match.findMany(),
@@ -20,7 +21,16 @@ export async function recomputeAllScores(): Promise<number> {
       prisma.matchPrediction.findMany(),
       prisma.groupPrediction.findMany(),
       prisma.bracketPrediction.findMany(),
+      prisma.tournamentFact.findUnique({ where: { key: "topScorer" } }),
+      prisma.score.findMany({ select: { userId: true, currentRank: true } }),
     ]);
+
+  // Föregående omgångs placering per spelare (currentRank blir nu previousRank).
+  const prevCurrentRank = new Map<string, number | null>(
+    existingScores.map((s) => [s.userId, s.currentRank]),
+  );
+
+  const topScorerActual = topScorerFact?.value ?? null;
 
   const matchNumberById = new Map(matches.map((m) => [m.id, m.matchNumber]));
 
@@ -78,7 +88,11 @@ export async function recomputeAllScores(): Promise<number> {
   const groupPredsByUser = groupBy(groupPreds, (p) => p.userId);
   const bracketPredsByUser = groupBy(bracketPreds, (p) => p.userId);
 
-  let updated = 0;
+  // Steg 1: räkna fram varje spelares totalpoäng + breakdown.
+  const computed = new Map<
+    string,
+    { total: number; breakdownJson: Prisma.InputJsonObject; leagueId: string; displayName: string }
+  >();
   for (const user of users) {
     const mPreds = (matchPredsByUser.get(user.id) ?? [])
       .map((p) => ({
@@ -110,18 +124,56 @@ export async function recomputeAllScores(): Promise<number> {
       groupPreds: gPreds,
       actualReach,
       predReach,
+      topScorerPred: user.topScorerPlayer,
+      topScorerActual,
     };
     const breakdown = computeScore(input);
     const breakdownJson = breakdown as unknown as Prisma.InputJsonObject;
-
-    await prisma.score.upsert({
-      where: { userId: user.id },
-      update: { total: breakdown.total, breakdown: breakdownJson },
-      create: { userId: user.id, total: breakdown.total, breakdown: breakdownJson },
+    computed.set(user.id, {
+      total: breakdown.total,
+      breakdownJson,
+      leagueId: user.leagueId,
+      displayName: user.displayName,
     });
-    updated++;
   }
-  return updated;
+
+  // Steg 2: placering inom varje liga (samma semantik som översikten via
+  // rankRows). Lika totalpoäng delar placering. currentRank skiftas till
+  // previousRank så att trenden upp/ner kan härledas vid nästa visning.
+  const usersByLeague = groupBy([...computed.entries()], ([, c]) => c.leagueId);
+  const newRank = new Map<string, number>();
+  for (const [, entries] of usersByLeague) {
+    const ranked = rankRows(
+      entries.map(([userId, c]) => ({ userId, total: c.total, displayName: c.displayName })),
+    );
+    for (const r of ranked) newRank.set(r.row.userId, r.rank);
+  }
+
+  const now = new Date();
+  const writes = [...computed.entries()].map(([userId, c]) => {
+    const currentRank = newRank.get(userId) ?? null;
+    const previousRank = prevCurrentRank.get(userId) ?? null;
+    return prisma.score.upsert({
+      where: { userId },
+      update: {
+        total: c.total,
+        breakdown: c.breakdownJson,
+        previousRank,
+        currentRank,
+        rankUpdatedAt: now,
+      },
+      create: {
+        userId,
+        total: c.total,
+        breakdown: c.breakdownJson,
+        currentRank,
+        rankUpdatedAt: now,
+      },
+    });
+  });
+
+  await prisma.$transaction(writes);
+  return writes.length;
 }
 
 function groupBy<T, K>(arr: T[], key: (t: T) => K): Map<K, T[]> {

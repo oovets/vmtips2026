@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isLocked, lockAt } from "@/lib/lock";
@@ -8,15 +7,29 @@ import { fetchFootballNews, SWEDISH_SOURCES } from "@/lib/news";
 import { fetchSocialPosts, JOURNALISTS, avatarUrl, profileUrl } from "@/lib/social";
 import { broadcasterFor, broadcasterLogo } from "@/lib/broadcast";
 import { marketOdds, marketPct } from "@/lib/odds";
-import { scoreGroupMatch } from "@/lib/scoring";
 import { Countdown } from "@/components/Countdown";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewsFeed } from "@/components/NewsFeed";
 import { ResultsHeatmap, type HeatTeam, type HeatCell, type CellState } from "@/components/ResultsHeatmap";
+import { GoalMinuteHeatmap } from "@/components/GoalMinuteHeatmap";
+import { computeGoalMinutes } from "@/lib/goal-minutes";
+import { GroupedBarChart, ComparisonBars, TopScorersGrid } from "@/components/HistoryCharts";
+import {
+  goalsByMinuteBucket,
+  tournamentStats,
+  goalsPerMatchDistribution,
+  dramaStats,
+  topScorersByTournament,
+} from "@/lib/tournament-history";
+import { fetchEspnMatches, lookupEspn } from "@/lib/espn";
 import { CountUp } from "@/components/CountUp";
-import { SuccessRing } from "@/components/SuccessRing";
 import { SinceLastVisit } from "@/components/SinceLastVisit";
 import { SectionHeading } from "@/components/SectionHeading";
+import { PageHeading } from "@/components/PageHeading";
+import { OddsBar } from "@/components/OddsBar";
+import { PlayerSearch } from "@/components/PlayerSearch";
+import { Klotterplank } from "@/components/Klotterplank";
+import { rankRows } from "@/lib/rank";
 
 export const dynamic = "force-dynamic";
 
@@ -33,60 +46,61 @@ function timeStr(d: Date): string {
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
 
-  const tippingMode = user.league.tippingMode as "EXACT" | "X12";
+  // Översikten är publik. Inloggade ser sin egen liga; utloggade ser den äldsta
+  // ligan som en publik vy (riktig data, ingen personlig "din placering"/ring).
+  const scopeLeague = user
+    ? { id: user.leagueId, name: user.league.name, tippingMode: user.league.tippingMode as "EXACT" | "X12" }
+    : await prisma.league.findFirst({
+        orderBy: { createdAt: "asc" },
+        select: { id: true, name: true, tippingMode: true },
+      });
+  const scopeLeagueId = scopeLeague?.id ?? null;
+  const tippingMode = (scopeLeague?.tippingMode as "EXACT" | "X12" | undefined) ?? "EXACT";
 
-  const [matches, leagueUsers, news, socialPosts] = await Promise.all([
+  // Allt nedan beror på den valda ligan (`scopeLeagueId`) och, för inloggade, på
+  // spelaren själv — kör i en enda parallell batch istället för flera DB-round-trips.
+  const [matches, leagueUsers, news, socialPosts, teams, championPreds, topScorerPicks, myGroupPreds] = await Promise.all([
     prisma.match.findMany({
       include: { homeTeam: true, awayTeam: true },
       orderBy: { kickoff: "asc" },
     }),
-    prisma.user.findMany({
-      where: { leagueId: user.leagueId },
-      include: { score: true },
-    }),
+    scopeLeagueId
+      ? prisma.user.findMany({
+          where: { leagueId: scopeLeagueId },
+          include: { score: true },
+        })
+      : [],
     fetchFootballNews(8),
     fetchSocialPosts(8),
-  ]);
-
-  const [teams, championPreds] = await Promise.all([
     prisma.team.findMany({
       select: { id: true, code: true, flag: true, name: true, fifaRank: true, recentForm: true },
     }),
-    prisma.bracketPrediction.findMany({
-      where: { matchNumber: 104, user: { leagueId: user.leagueId } },
-      select: { winnerTeamId: true },
-    }),
+    scopeLeagueId
+      ? prisma.bracketPrediction.findMany({
+          where: { matchNumber: 104, user: { leagueId: scopeLeagueId } },
+          select: { winnerTeamId: true },
+        })
+      : [],
+    // Ligans skyttekung-tips (frivilligt). Endast ifyllda.
+    scopeLeagueId
+      ? prisma.user.findMany({
+          where: { leagueId: scopeLeagueId, topScorerPlayer: { not: null } },
+          select: { topScorerPlayer: true },
+        })
+      : [],
+    // Spelarens egna tips på avgjorda gruppmatcher — för träffsäkerhetsringen.
+    // Endast för inloggade; utloggade har ingen egen ring.
+    user
+      ? prisma.matchPrediction.findMany({
+          where: {
+            userId: user.id,
+            match: { status: "FINISHED", stage: "GROUP", homeScore: { not: null }, awayScore: { not: null } },
+          },
+          include: { match: { select: { homeScore: true, awayScore: true } } },
+        })
+      : [],
   ]);
-
-  // Spelarens egna tips på avgjorda gruppmatcher — för träffsäkerhetsringen.
-  const myGroupPreds = await prisma.matchPrediction.findMany({
-    where: {
-      userId: user.id,
-      match: { status: "FINISHED", stage: "GROUP", homeScore: { not: null }, awayScore: { not: null } },
-    },
-    include: { match: { select: { homeScore: true, awayScore: true } } },
-  });
-
-  let hitPredicted = 0;
-  let hitCorrect = 0;
-  let hitExact = 0;
-  for (const p of myGroupPreds) {
-    const hs = p.match.homeScore;
-    const as = p.match.awayScore;
-    if (hs == null || as == null) continue;
-    hitPredicted++;
-    if (tippingMode === "X12") {
-      const actual = hs > as ? "1" : hs < as ? "2" : "X";
-      if (p.predOutcome === actual) hitCorrect++;
-    } else if (p.predHome != null && p.predAway != null) {
-      const s = scoreGroupMatch({ predHome: p.predHome, predAway: p.predAway }, { homeScore: hs, awayScore: as });
-      if (s.correct) hitCorrect++;
-      if (s.exact) hitExact++;
-    }
-  }
-  const hitPct = hitPredicted ? Math.round((hitCorrect / hitPredicted) * 100) : 0;
 
   const now = new Date();
   const locked = isLocked(now);
@@ -98,7 +112,6 @@ export default async function DashboardPage() {
   const finishedSorted = matches
     .filter((m) => m.status === "FINISHED")
     .sort((a, b) => b.kickoff.getTime() - a.kickoff.getTime());
-  const lastFinished = finishedSorted[0] ?? null;
   // Tidpunkter då resultat senast uppdaterades — driver "Sedan du var här".
   const resultTimes = finishedSorted.map((m) => m.updatedAt.toISOString());
 
@@ -107,23 +120,33 @@ export default async function DashboardPage() {
   const todays = matches.filter((m) => dateKey(m.kickoff) === todayKey);
   const focusMatches = (todays.length ? todays : upcoming.slice(0, 5)).slice(0, 6);
 
-  // ── Liga-statistik ──────────────────────────────────────────────────────────
-  const ranked = leagueUsers
-    .map((u) => ({
-      id: u.id,
-      displayName: u.displayName,
-      submitted: u.submitted,
-      total: u.score?.total ?? 0,
-      isMe: u.id === user.id,
-    }))
-    .sort((a, b) => b.total - a.total || a.displayName.localeCompare(b.displayName));
-  let rk = 0;
-  let prev: number | null = null;
-  const rankedRows = ranked.map((r, i) => {
-    if (prev === null || r.total !== prev) rk = i + 1;
-    prev = r.total;
-    return { ...r, rank: rk };
+  // ── ESPN live-data + riktiga odds för fokusmatcherna (tyst fallback) ──────────
+  const espn = await fetchEspnMatches(focusMatches.map((m) => m.kickoff));
+
+  // ── Klotterplank: senaste meddelandena för en första målning utan flimmer ─────
+  // Den slimmade raden roterar bara de senaste och visar samma i sitt popover,
+  // så en liten seed räcker; klienten hämtar full lista + antal direkt via GET.
+  const guestbookEntries = await prisma.guestbookEntry.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 6,
+    select: { id: true, name: true, message: true, createdAt: true },
   });
+  const guestbookInitial = guestbookEntries.map((e) => ({
+    id: e.id,
+    name: e.name,
+    message: e.message,
+    createdAt: e.createdAt.toISOString(),
+  }));
+
+  // ── Liga-statistik ──────────────────────────────────────────────────────────
+  const ranked = leagueUsers.map((u) => ({
+    id: u.id,
+    displayName: u.displayName,
+    submitted: u.submitted,
+    total: u.score?.total ?? 0,
+    isMe: user ? u.id === user.id : false,
+  }));
+  const rankedRows = rankRows(ranked).map((r) => ({ ...r.row, rank: r.rank }));
   const me = rankedRows.find((r) => r.isMe);
 
   // ── Turneringspuls ────────────────────────────────────────────────────────────
@@ -137,6 +160,23 @@ export default async function DashboardPage() {
       details: m.details,
     })),
   );
+  // Målminuter aggregerade över hela turneringen (5-minutersintervall).
+  const goalMinutes = computeGoalMinutes(
+    matches.map((m) => ({
+      homeTeamId: m.homeTeamId,
+      awayTeamId: m.awayTeamId,
+      status: m.status,
+      details: m.details,
+    })),
+  );
+
+  // Historiska mästerskapsaggregat (statisk data från Wikipedia-skrapningen).
+  const histMinuteBuckets = goalsByMinuteBucket();
+  const histStats = tournamentStats();
+  const histGoalsPerMatch = goalsPerMatchDistribution();
+  const histDrama = dramaStats();
+  const histScorers = topScorersByTournament(5);
+
   const teamById = new Map(matches.flatMap((m) => [m.homeTeam, m.awayTeam]).filter(Boolean).map((t) => [t!.id, t!]));
   const teamTag = (id?: string | null) => {
     const t = id ? teamById.get(id) : null;
@@ -195,6 +235,19 @@ export default async function DashboardPage() {
     .map(([id, count]) => ({ id, count, meta: teamMeta.get(id) }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
+
+  // Ligans mest tippade skyttekung (frivilligt tips). Gruppera skiftlägesokänsligt.
+  const scorerCount = new Map<string, { label: string; count: number }>();
+  for (const u of topScorerPicks) {
+    const name = (u.topScorerPlayer ?? "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    const e = scorerCount.get(key) ?? { label: name, count: 0 };
+    e.count++;
+    scorerCount.set(key, e);
+  }
+  const scorerTotal = [...scorerCount.values()].reduce((a, b) => a + b.count, 0);
+  const topScorers = [...scorerCount.values()].sort((a, b) => b.count - a.count).slice(0, 5);
 
   // Lag i bäst form (poäng på senaste 5: W=3, D=1, L=0).
   const formPts = (f: ("W" | "D" | "L")[]) => f.reduce((a, r) => a + (r === "W" ? 3 : r === "D" ? 1 : 0), 0);
@@ -286,42 +339,60 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <AutoRefresh seconds={60} />
 
+      <PageHeading
+        title="Översikt"
+      >
+      <div className="space-y-6">
+      <Klotterplank initialEntries={guestbookInitial} loggedIn={!!user} />
+
       <SinceLastVisit rank={me?.rank ?? null} points={me?.total ?? 0} resultTimes={resultTimes} />
 
       {/* ── Turneringspuls ── */}
-      <section className="animate-fade-in space-y-3 [animation-fill-mode:both]">
-        <SectionHeading title="Turneringspuls" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Metric label="Matcher spelade" value={metrics.matchesPlayed} />
-          <Metric label="Mål totalt" value={metrics.totalGoals} />
-          <Metric label="Mål / match" value={metrics.matchesPlayed ? metrics.goalsPerMatch : "–"} decimals={2} />
-          <Metric label="Hållna nollor" value={metrics.cleanSheets} />
-          <Metric label="Gula / Röda" value={`${metrics.yellowCards}/${metrics.redCards}`} />
-          <Metric label="Straffavgöranden" value={metrics.shootouts} />
-        </div>
-        {(metrics.topScoringTeams.length > 0 || metrics.topScorers.length > 0) && (
-          <div className="grid gap-3 md:grid-cols-2">
-            {metrics.topScoringTeams.length > 0 && (
-              <div className="card p-4">
-                <h3 className="mb-2 text-sm font-bold">Målfarligaste lag</h3>
-                <BarList
-                  items={metrics.topScoringTeams.map((t) => ({ label: teamTag(t.teamId), value: t.goals }))}
-                />
-              </div>
-            )}
-            {metrics.topScorers.length > 0 && (
-              <div className="card p-4">
-                <h3 className="mb-2 text-sm font-bold">Skytteliga</h3>
-                <BarList items={metrics.topScorers.map((s) => ({ label: s.player, value: s.goals }))} />
+      <section className="animate-fade-in [animation-fill-mode:both]">
+        <SectionHeading title="Turneringspuls">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <Metric label="Matcher spelade" value={metrics.matchesPlayed} />
+              <Metric label="Mål totalt" value={metrics.totalGoals} />
+              <Metric label="Mål / match" value={metrics.matchesPlayed ? metrics.goalsPerMatch : "–"} decimals={2} />
+              <Metric label="Hållna nollor" value={metrics.cleanSheets} />
+              <Metric label="Gula / Röda" value={`${metrics.yellowCards}/${metrics.redCards}`} />
+              <Metric label="Straffavgöranden" value={metrics.shootouts} />
+            </div>
+            {(metrics.topScoringTeams.length > 0 || metrics.topScorers.length > 0) && (
+              <div className="grid gap-3 md:grid-cols-2">
+                {metrics.topScoringTeams.length > 0 && (
+                  <div className="card p-4">
+                    <h3 className="mb-2 text-sm font-bold">Målfarligaste lag</h3>
+                    <BarList
+                      items={metrics.topScoringTeams.map((t) => ({ label: teamTag(t.teamId), value: t.goals }))}
+                    />
+                  </div>
+                )}
+                {metrics.topScorers.length > 0 && (
+                  <div className="card p-4">
+                    <h3 className="mb-2 text-sm font-bold">Skytteliga</h3>
+                    <BarList items={metrics.topScorers.map((s) => ({ label: s.player, value: s.goals }))} />
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+        </SectionHeading>
+      </section>
+
+      {/* ── Sök spelare ── */}
+      <section className="animate-fade-in [animation-delay:120ms] [animation-fill-mode:both]">
+        <SectionHeading title="Sök spelare">
+          <div className="card p-4">
+            <PlayerSearch />
+          </div>
+        </SectionHeading>
       </section>
 
       {/* ── Hero: status nu ── */}
-      <section className="grid animate-fade-in gap-4 [animation-delay:80ms] [animation-fill-mode:both] lg:grid-cols-3">
-        <div className={`card flex flex-col justify-between gap-3 p-5 lg:col-span-2 ${live.length > 0 ? "animate-live-glow border-red-500/40" : ""}`}>
+      <section className="animate-fade-in [animation-delay:80ms] [animation-fill-mode:both]">
+        <div className={`card flex flex-col justify-between gap-3 p-5 ${live.length > 0 ? "animate-live-glow border-red-500/40" : ""}`}>
           {live.length > 0 ? (
             <>
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-300">
@@ -369,40 +440,14 @@ export default async function DashboardPage() {
             <p className="text-slate-400">Inga kommande matcher.</p>
           )}
         </div>
-
-        <div className="card flex flex-col justify-center gap-3 p-5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Din placering</div>
-          <div className="flex items-end gap-2">
-            <span className="text-4xl font-extrabold tabular-nums">{me ? `#${me.rank}` : "—"}</span>
-            <span className="mb-1 text-sm text-slate-400">av {rankedRows.length}</span>
-          </div>
-          <div className="text-sm text-slate-300">
-            {me?.total ?? 0} poäng
-            {me && !me.submitted && <span className="ml-2 text-amber-300/80">· ej inlämnat</span>}
-          </div>
-          {hitPredicted > 0 && (
-            <div className="mt-1 border-t border-white/10 pt-3">
-              <SuccessRing pct={hitPct} correct={hitCorrect} predicted={hitPredicted} exact={hitExact} />
-            </div>
-          )}
-          {lastFinished && (
-            <p className="mt-1 border-t border-white/10 pt-2 text-xs text-slate-500">
-              Senast avgjort: {teamTag(lastFinished.homeTeamId)} {lastFinished.homeScore}–{lastFinished.awayScore} {teamTag(lastFinished.awayTeamId)}
-            </p>
-          )}
-        </div>
       </section>
 
-      {/* ── Fotbollsnyheter ── */}
-      <div className="animate-fade-in [animation-delay:160ms] [animation-fill-mode:both]">
-        <NewsFeed items={news} swedishSources={SWEDISH_SOURCES} />
-      </div>
-
       {/* ── Fokusmatcher + ligakonsensus ── */}
-      <section className="animate-fade-in space-y-3 [animation-delay:240ms] [animation-fill-mode:both]">
-        <SectionHeading title={todays.length ? "Dagens matcher" : "Kommande matcher"}>
-          <Link href="/matcher" className="text-pitch-300 hover:underline">Alla matcher →</Link>
-        </SectionHeading>
+      <section className="animate-fade-in [animation-delay:240ms] [animation-fill-mode:both]">
+        <SectionHeading
+          title={todays.length ? "Dagens matcher" : "Kommande matcher"}
+          action={<Link href="/matcher" className="text-pitch-300 hover:underline">Alla matcher →</Link>}
+        >
         {focusMatches.length === 0 ? (
           <p className="card p-4 text-sm text-slate-400">Inga matcher att visa.</p>
         ) : (
@@ -412,15 +457,36 @@ export default async function DashboardPage() {
               const pct = (k: "1" | "X" | "2") => (t && t.total ? Math.round((t[k] / t.total) * 100) : 0);
               const homeName = m.homeTeam ? teamTag(m.homeTeamId) : (m.homeSlot ?? "?");
               const awayName = m.awayTeam ? teamTag(m.awayTeamId) : (m.awaySlot ?? "?");
+              const homeCode = m.homeTeam ? (teamMeta.get(m.homeTeamId!)?.code ?? "Hemma") : (m.homeSlot ?? "Hemma");
+              const awayCode = m.awayTeam ? (teamMeta.get(m.awayTeamId!)?.code ?? "Borta") : (m.awaySlot ?? "Borta");
               const channel = broadcasterFor(m.channel);
               const odds = m.homeTeam && m.awayTeam
                 ? marketOdds(teamMeta.get(m.homeTeamId!)?.fifaRank ?? 99, teamMeta.get(m.awayTeamId!)?.fifaRank ?? 99)
                 : null;
               const mp = odds ? marketPct(odds) : null;
+              const live = m.homeTeam && m.awayTeam
+                ? lookupEspn(espn, teamMeta.get(m.homeTeamId!)?.code, teamMeta.get(m.awayTeamId!)?.code)
+                : null;
+              const espnOdds = live?.odds ?? null;
+              const showScore = live && live.state !== "pre" && live.homeScore != null && live.awayScore != null;
               return (
                 <div key={m.id} className="card p-4">
                   <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
-                    <span>{STAGE_LABEL[m.stage] ?? m.stage}{m.groupId ? ` ${m.groupId}` : ""}</span>
+                    <span className="flex items-center gap-2">
+                      {STAGE_LABEL[m.stage] ?? m.stage}{m.groupId ? ` ${m.groupId}` : ""}
+                      {live?.state === "in" && (
+                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-200">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                          </span>
+                          {live.clock ?? "Live"}
+                        </span>
+                      )}
+                      {live?.state === "post" && (
+                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">Slut</span>
+                      )}
+                    </span>
                     <div className="flex items-center gap-2">
                       {channel && (
                         <span
@@ -448,50 +514,66 @@ export default async function DashboardPage() {
                   </div>
                   <div className="flex items-center justify-between gap-2 text-sm font-semibold">
                     <span className="min-w-0 truncate">{homeName}</span>
-                    <span className="shrink-0 text-slate-500">vs</span>
+                    {showScore ? (
+                      <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-base font-extrabold tabular-nums">
+                        {live!.homeScore}–{live!.awayScore}
+                      </span>
+                    ) : (
+                      <span className="shrink-0 text-slate-500">vs</span>
+                    )}
                     <span className="min-w-0 truncate text-right">{awayName}</span>
                   </div>
-                  <div className="mt-3 space-y-2">
-                    {mp && odds && (
-                      <div>
-                        <div className="mb-0.5 flex items-center justify-between text-[10px]">
-                          <span className="font-semibold text-slate-300">Marknad</span>
-                          <span className="tabular-nums text-slate-500">{odds.oddsHome.toFixed(2)} · {odds.oddsDraw.toFixed(2)} · {odds.oddsAway.toFixed(2)}</span>
-                        </div>
-                        <div className="flex h-2 overflow-hidden rounded-full bg-white/5">
-                          <div style={{ width: `${mp["1"]}%` }} className="bg-pitch-500/60" />
-                          <div style={{ width: `${mp.X}%` }} className="bg-slate-500/60" />
-                          <div style={{ width: `${mp["2"]}%` }} className="bg-flag-500/60" />
-                        </div>
-                        <div className="mt-0.5 flex justify-between text-[10px] text-slate-500">
-                          <span>1 {mp["1"]}%</span>
-                          <span>X {mp.X}%</span>
-                          <span>2 {mp["2"]}%</span>
-                        </div>
+                  <div className="mt-3 space-y-3">
+                    {live?.overUnder != null && (
+                      <div className="flex items-center justify-end gap-2">
+                        <span
+                          className="shrink-0 rounded bg-flag-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-flag-300"
+                          title={`Spelbolagens gräns: ${live.overUnder} mål`}
+                        >
+                          {live.overUnder >= 2.75 ? "Målfest väntas" : live.overUnder <= 2.25 ? "Få mål väntas" : "Jämn målbild"} · O/U {live.overUnder}
+                        </span>
                       </div>
+                    )}
+                    {espnOdds && (
+                      <OddsBar
+                        title="Spelbolagen"
+                        hint={
+                          espnOdds.homeDec && espnOdds.drawDec && espnOdds.awayDec
+                            ? `spelodds ${espnOdds.homeDec.toFixed(2)} / ${espnOdds.drawDec.toFixed(2)} / ${espnOdds.awayDec.toFixed(2)}`
+                            : "live från spelbolag"
+                        }
+                        homeCode={homeCode}
+                        awayCode={awayCode}
+                        home={espnOdds.homePct}
+                        draw={espnOdds.drawPct}
+                        away={espnOdds.awayPct}
+                        dim
+                      />
+                    )}
+                    {!espnOdds && mp && odds && (
+                      <OddsBar
+                        title="Modellens odds"
+                        hint={`uppskattat ${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`}
+                        homeCode={homeCode}
+                        awayCode={awayCode}
+                        home={mp["1"]}
+                        draw={mp.X}
+                        away={mp["2"]}
+                        dim
+                      />
                     )}
                     {t && t.total > 0 ? (
-                      <div>
-                        <div className="mb-0.5 flex items-center justify-between text-[10px]">
-                          <span className="font-semibold text-slate-300">Ligan</span>
-                          <span className="text-slate-500">{t.total} tips</span>
-                        </div>
-                        <div className="flex h-2 overflow-hidden rounded-full bg-white/5">
-                          <div style={{ width: `${pct("1")}%` }} className="bg-pitch-500" />
-                          <div style={{ width: `${pct("X")}%` }} className="bg-slate-500" />
-                          <div style={{ width: `${pct("2")}%` }} className="bg-flag-500" />
-                        </div>
-                        <div className="mt-0.5 flex justify-between text-[10px] text-slate-400">
-                          <span>1 {pct("1")}%</span>
-                          <span>X {pct("X")}%</span>
-                          <span>2 {pct("2")}%</span>
-                        </div>
-                      </div>
+                      <OddsBar
+                        title="Så tippar ni i ligan"
+                        hint={`${t.total} tips`}
+                        homeCode={homeCode}
+                        awayCode={awayCode}
+                        home={pct("1")}
+                        draw={pct("X")}
+                        away={pct("2")}
+                      />
                     ) : (
-                      <p className="text-[11px] text-slate-600">Ligakonsensus visas för gruppmatcher med tips.</p>
-                    )}
-                    {mp && t && t.total > 0 && (
-                      <p className="text-[10px] text-slate-600">Modellbaserade marknadsodds (FIFA-ranking) vs {user.league.name}.</p>
+                      <p className="text-[11px] text-slate-600">Ligans tips visas för gruppmatcher så fort någon tippat.</p>
                     )}
                   </div>
                 </div>
@@ -499,17 +581,70 @@ export default async function DashboardPage() {
             })}
           </div>
         )}
+        </SectionHeading>
       </section>
 
       {/* ── Resultatkarta (heatmap) ── */}
-      <section className="animate-fade-in space-y-3 [animation-delay:320ms] [animation-fill-mode:both]">
-        <SectionHeading title="Resultatkarta">Alla lag · alla omgångar</SectionHeading>
-        <ResultsHeatmap teams={heatTeams} />
+      <section className="animate-fade-in [animation-delay:320ms] [animation-fill-mode:both]">
+        <SectionHeading title="Resultatkarta">
+          <ResultsHeatmap teams={heatTeams} />
+        </SectionHeading>
+      </section>
+
+      {/* ── Målminuter (heatmap) ── */}
+      <section className="animate-fade-in [animation-delay:360ms] [animation-fill-mode:both]">
+        <SectionHeading title="När faller målen?">
+          <GoalMinuteHeatmap
+            summary={goalMinutes}
+            emptyHint="Inga målminuter inrapporterade än — fylls på när matcherna spelats och detaljer synkats."
+          />
+        </SectionHeading>
+      </section>
+
+      {/* ── Historiska mästerskap (Wikipedia-data) ── */}
+      <section className="animate-fade-in [animation-delay:380ms] [animation-fill-mode:both]">
+        <SectionHeading title="Så har VM sett ut">
+          <div className="space-y-3">
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">När görs målen? (per 10 min)</div>
+              <GroupedBarChart labels={histMinuteBuckets.labels} series={histMinuteBuckets.series} unit="mål" />
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Mål per match</div>
+              <GroupedBarChart labels={histGoalsPerMatch.labels} series={histGoalsPerMatch.series} unit="matcher" />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ComparisonBars title="Mål per match" stats={histStats} value={(s) => s.goalsPerMatch} format={(n) => n.toFixed(2)} />
+              <ComparisonBars title="Andel mål 2:a halvlek" stats={histStats} value={(s) => 100 - s.firstHalfPct} format={(n) => `${n}%`} hint="resten i 1:a" />
+              <ComparisonBars title="Sena mål (76:e+)" stats={histStats} value={(s) => s.lateGoalsPct} format={(n) => `${n}%`} />
+              <ComparisonBars title="Straffmål" stats={histStats} value={(s) => s.penalties} format={(n) => `${n}`} />
+              <ComparisonBars title="Självmål" stats={histStats} value={(s) => s.ownGoals} format={(n) => `${n}`} />
+              <ComparisonBars title="Snittpublik" stats={histStats} value={(s) => s.avgAttendance ?? 0} format={(n) => `${Math.round(n / 1000)}k`} />
+            </div>
+
+            {/* Dramatik & kuriosa */}
+            <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Dramatik &amp; kuriosa</div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <ComparisonBars title="Comebacks" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.comebackPct ?? 0} format={(n) => `${n}%`} hint="låg under, förlorade ej" />
+              <ComparisonBars title="Sen dramatik (mål 85:e+)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.lateDramaPct ?? 0} format={(n) => `${n}%`} hint="andel matcher" />
+              <ComparisonBars title="Straffläggningar" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.shootouts ?? 0} format={(n) => `${n}`} hint="i slutspelet" />
+              <ComparisonBars title="Mållösa (0–0)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.goallessPct ?? 0} format={(n) => `${n}%`} />
+              <ComparisonBars title="Målrika (5+ mål)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.highScoringPct ?? 0} format={(n) => `${n}%`} />
+              <ComparisonBars title="Mål totalt" stats={histStats} value={(s) => s.goals} format={(n) => `${n}`} />
+            </div>
+
+            {/* Skyttekungar genom åren */}
+            <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Skyttekungar genom åren</div>
+            <TopScorersGrid data={histScorers} />
+          </div>
+        </SectionHeading>
       </section>
 
       {/* ── Trender & snackisar ── */}
-      <section className="animate-fade-in space-y-3 [animation-delay:400ms] [animation-fill-mode:both]">
-        <SectionHeading title="Trender & snackisar" />
+      <section className="animate-fade-in [animation-delay:400ms] [animation-fill-mode:both]">
+        <SectionHeading title="Trender & snackisar">
         <div className="grid gap-3 lg:grid-cols-3">
           {/* Ligans mästartips */}
           <div className="card p-4">
@@ -536,6 +671,30 @@ export default async function DashboardPage() {
                   Baserat på {champTotal} tips. FIFA-rankad{" "}
                   {topChampions[0]?.meta ? `#${topChampions[0].meta.fifaRank}` : "—"} toppar.
                 </p>
+              </div>
+            )}
+          </div>
+
+          {/* Ligans skyttekung-tips */}
+          <div className="card p-4">
+            <h3 className="mb-2 text-sm font-bold">⚽ Ligans skyttekung-tips</h3>
+            {topScorers.length === 0 ? (
+              <p className="text-sm text-slate-500">Ingen har tippat skyttekung än (frivilligt).</p>
+            ) : (
+              <div className="space-y-1.5">
+                {topScorers.map((s) => {
+                  const pct = scorerTotal ? Math.round((s.count / scorerTotal) * 100) : 0;
+                  return (
+                    <div key={s.label} className="flex items-center gap-2 text-sm">
+                      <span className="w-24 shrink-0 truncate text-slate-300" title={s.label}>{s.label}</span>
+                      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-white/5">
+                        <div className="h-full rounded-full bg-pitch-500" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-400">{s.count} st</span>
+                    </div>
+                  );
+                })}
+                <p className="pt-1 text-[10px] text-slate-500">Baserat på {scorerTotal} tips i ligan.</p>
               </div>
             )}
           </div>
@@ -588,11 +747,17 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
+        </SectionHeading>
       </section>
 
+      {/* ── Fotbollsnyheter ── */}
+      <div className="animate-fade-in [animation-delay:440ms] [animation-fill-mode:both]">
+        <NewsFeed items={news} swedishSources={SWEDISH_SOURCES} />
+      </div>
+
       {/* ── Snack på X ── */}
-      <section className="animate-fade-in space-y-3 [animation-delay:480ms] [animation-fill-mode:both]">
-        <SectionHeading title="Snack på X">Fotbolls- &amp; VM-skribenter</SectionHeading>
+      <section className="animate-fade-in [animation-delay:480ms] [animation-fill-mode:both]">
+        <SectionHeading title="Snack på X">
         {socialPosts.length > 0 ? (
           <div className="card divide-y divide-white/5">
             {socialPosts.map((post, i) => (
@@ -650,7 +815,10 @@ export default async function DashboardPage() {
             </div>
           </>
         )}
+        </SectionHeading>
       </section>
+      </div>
+      </PageHeading>
     </div>
   );
 }

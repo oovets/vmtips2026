@@ -1,18 +1,14 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { computeAllStandings, type ResultRef, type TeamRef } from "@/lib/standings";
 import type { FormEntry } from "@/lib/football-api";
 import { wc2022Badge, WC2022_LEGEND } from "@/lib/wc2022";
+import { PageHeading } from "@/components/PageHeading";
 
 export const dynamic = "force-dynamic";
 
 const LETTERS = "ABCDEFGHIJKL".split("");
 
 export default async function GrupperPage() {
-  const user = await getCurrentUser();
-  if (!user) redirect("/");
-
   const [teams, finished] = await Promise.all([
     prisma.team.findMany(),
     prisma.match.findMany({
@@ -41,19 +37,12 @@ export default async function GrupperPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold">Gruppställningar</h1>
-        <p className="text-sm text-slate-400">
-          {anyPlayed
-            ? "Live från spelade matcher."
-            : "Inga matcher spelade än — ställningarna fylls på under turneringen."}
-          {!hasForm && (
-            <span className="ml-2 text-slate-500">(Lagform kan synkas via Admin → Synka lagform)</span>
-          )}
-        </p>
-
+      <PageHeading
+        title="Gruppställningar"
+      >
+      <div className="space-y-5">
         {/* Förklaring av "22"-kolumnens förkortningar (VM 2022-placering) */}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
           <span className="font-semibold uppercase tracking-wide text-slate-400">VM 2022</span>
           {WC2022_LEGEND.map((l) => (
             <span key={l.code} className="flex items-center gap-1">
@@ -62,14 +51,14 @@ export default async function GrupperPage() {
             </span>
           ))}
         </div>
-      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {LETTERS.map((letter) => (
-          <div key={letter} className="card p-4 space-y-3">
+          <div key={letter} id={`grupp-${letter}`} className="card scroll-mt-24 p-4 space-y-3">
             <h2 className="text-base font-bold tracking-wide text-slate-200">Grupp {letter}</h2>
 
-            <table className="w-full text-sm">
+            <div className="-mx-1 overflow-x-auto">
+            <table className="w-full min-w-[300px] text-sm">
               <thead className="text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="py-1 text-left font-medium w-5">#</th>
@@ -129,9 +118,12 @@ export default async function GrupperPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         ))}
       </div>
+      </div>
+      </PageHeading>
     </div>
   );
 }

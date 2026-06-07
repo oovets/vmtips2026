@@ -15,7 +15,6 @@ const STAGE_TITLE: Record<string, string> = {
 // Detaljerad spelarstatistik för topplistans inline-panel.
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const me = await getCurrentUser();
-  if (!me) return NextResponse.json({ error: "Ej inloggad" }, { status: 401 });
 
   const target = await prisma.user.findUnique({
     where: { id: params.id },
@@ -27,11 +26,28 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       matchPredictions: { include: { match: { select: { matchNumber: true } } } },
     },
   });
-  if (!target || target.leagueId !== me.leagueId) {
+  if (!target) {
     return NextResponse.json({ error: "Hittades inte" }, { status: 404 });
   }
 
-  const reveal = isLocked() || target.id === me.id;
+  // Utloggade besökare får bara se den publika (äldsta) ligans spelare.
+  // Inloggade ser sin egen liga.
+  if (me) {
+    if (target.leagueId !== me.leagueId) {
+      return NextResponse.json({ error: "Hittades inte" }, { status: 404 });
+    }
+  } else {
+    const defaultLeague = await prisma.league.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    });
+    if (!defaultLeague || target.leagueId !== defaultLeague.id) {
+      return NextResponse.json({ error: "Hittades inte" }, { status: 404 });
+    }
+  }
+
+  // Utloggade besökare har ingen "egen" spelare; tips avslöjas först efter lås.
+  const reveal = isLocked() || (me ? target.id === me.id : false);
   const total = target.score?.total ?? 0;
   const submitted = target.submitted;
 
@@ -40,7 +56,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       id: target.id,
       displayName: target.displayName,
       submitted,
-      isMe: target.id === me.id,
+      isMe: me ? target.id === me.id : false,
       reveal: false,
       total,
     });
@@ -107,7 +123,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   let championSharePct: number | null = null;
   if (champId) {
     const leagueChamps = await prisma.bracketPrediction.findMany({
-      where: { matchNumber: 104, winnerTeamId: { not: null }, user: { leagueId: me.leagueId } },
+      where: { matchNumber: 104, winnerTeamId: { not: null }, user: { leagueId: target.leagueId } },
       select: { winnerTeamId: true },
     });
     const totalChamps = leagueChamps.length;
@@ -170,7 +186,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     id: target.id,
     displayName: target.displayName,
     submitted,
-    isMe: target.id === me.id,
+    isMe: me ? target.id === me.id : false,
     reveal: true,
     total,
     breakdown: {
@@ -178,7 +194,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       advancement: b.advancement ?? 0,
       knockout: b.knockout ?? 0,
       champion: b.champion ?? 0,
+      topScorer: b.topScorer ?? 0,
     },
+    topScorer: target.topScorerPlayer
+      ? { player: target.topScorerPlayer, team: label(target.topScorerTeamId) }
+      : null,
     stats: {
       ...derived,
       exactCount,

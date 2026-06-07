@@ -104,7 +104,13 @@ export function Leaderboard() {
                 {isOpen && (
                   <tr className="border-t border-white/5 bg-night-950/40">
                     <td colSpan={9} className="p-0">
-                      <PlayerDetail id={r.id} />
+                      {/* Detaljpanelen ligger i en min-w-[640px]-tabell. Sticky + en
+                          viewport-bunden bredd håller innehållet kvar i synfältet och
+                          låter dess egna grids kollapsa på mobilen istället för att
+                          tvingas ut i 640px-bredd. */}
+                      <div className="sticky left-0 w-screen max-w-[calc(100vw-1.5rem)] sm:w-full sm:max-w-none">
+                        <PlayerDetail id={r.id} />
+                      </div>
                     </td>
                   </tr>
                 )}

@@ -23,12 +23,61 @@ h6 {
 
 body {
   @apply overflow-x-hidden bg-night-950 text-slate-100 antialiased;
-  background-image:
-    radial-gradient(70rem 50rem at 105% -5%, rgba(0, 106, 167, 0.28), transparent),
-    radial-gradient(60rem 40rem at -5% 5%, rgba(254, 204, 0, 0.12), transparent),
-    radial-gradient(40rem 40rem at 50% 100%, rgba(0, 106, 167, 0.10), transparent);
-  background-attachment: fixed;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Roterande, mörkt nedtonad bakgrund med historiska VM-bilder ─────────────
+   Fasta lager bakom allt innehåll. <BackgroundRotator /> växlar bildlagrens
+   opacitet med mjuk övertoning. Ett mörkt skikt läggs överst så att kort och
+   text förblir lättlästa i appens mörka tema. */
+.bg-rotator {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  background-color: theme("colors.night.950");
+}
+
+.bg-rotator__layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 2s ease-in-out;
+  will-change: opacity;
+  /* Bakgrunden ska aldrig vara i färg: helt avmättad (svartvit) och något
+     nedtonad så förgrundsinnehållet förblir lättläst. Görs i CSS så att
+     originalbilderna bevaras orörda. */
+  filter: grayscale(1) brightness(0.7) contrast(1.05);
+}
+
+.bg-rotator__layer.is-active {
+  opacity: 1;
+}
+
+/* Mörkt skikt ovanpå bilden: håller temat mörkt och stämningsfullt och
+   garanterar läsbarhet för förgrundsinnehåll. */
+.bg-rotator__overlay {
+  position: fixed;
+  inset: 0;
+  z-index: -9;
+  pointer-events: none;
+  /* Helt neutralt (rent svart) mörkt skikt – ingen färgton. Håller temat
+     mörkt och garanterar läsbarhet för förgrundsinnehåll. */
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.86) 0%,
+    rgba(0, 0, 0, 0.9) 55%,
+    rgba(0, 0, 0, 0.94) 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-rotator__layer {
+    transition: none;
+  }
 }
 
 /* Respektera iPhone-hörn / hemknappsområde */
@@ -37,8 +86,10 @@ body {
 }
 
 @layer components {
+  /* Mörkt blåtonade kort: mer åt graf-/VM-blått men fortfarande dämpat nog för
+     den svartvita bakgrunden och lång läsbarhet på mobil. */
   .card {
-    @apply rounded-2xl border border-pitch-500/20 bg-night-900/70 shadow-xl backdrop-blur;
+    @apply rounded-2xl border border-pitch-500/20 bg-[rgba(8,19,31,0.74)] shadow-xl backdrop-blur;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;

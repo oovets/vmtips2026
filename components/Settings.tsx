@@ -63,7 +63,7 @@ export function Settings({ user }: Props) {
         </div>
         <div>
           <p className="text-xs text-slate-500 mb-1">Liga-kod</p>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="select-all font-mono text-2xl font-extrabold tracking-[0.2em] text-flag-500">
               {user.joinCode}
             </span>

@@ -51,10 +51,17 @@ model User {
   league      League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
   leagueId    String
 
+  // Frivilligt skyttekung-tips (VM:s skyttekung). Inte ett krav för inlämning.
+  topScorerPlayer String? // fritext, spelarnamn
+  topScorerTeamId String? // valfritt lag (referens till Team.id, ej FK för enkelhet)
+
   matchPredictions   MatchPrediction[]
   groupPredictions   GroupPrediction[]
   bracketPredictions BracketPrediction[]
+  guestbookEntries   GuestbookEntry[]
   score              Score?
+  sessionLogs        SessionLog[]
+  interactionEvents  InteractionEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -161,6 +168,28 @@ model BracketPrediction {
   @@unique([userId, matchNumber])
 }
 
+// Turneringsövergripande facit/fakta (nyckel-värde). Används bl.a. för VM:s
+// skyttekung ("topScorer"): value = spelarnamn (facit som admin fyller i).
+model TournamentFact {
+  key       String   @id // t.ex. "topScorer"
+  value     String?
+  teamId    String? // valfri lag-koppling (t.ex. skyttekungens lag)
+  updatedAt DateTime @updatedAt
+}
+
+// Klotterplank: kort, publikt meddelande på översikten. Frivillig koppling till
+// inloggad spelare (userId), annars fritt angivet visningsnamn.
+model GuestbookEntry {
+  id        String   @id @default(uuid())
+  name      String // visningsnamn (inloggad spelares namn eller fritt angivet)
+  message   String
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?
+
+  @@index([createdAt])
+}
+
 // Cachelagrad totalpoäng + uppdelning per spelare (räknas om vid varje resultatsynk)
 model Score {
   id         String   @id @default(uuid())
@@ -168,5 +197,81 @@ model Score {
   userId     String   @unique
   total      Int      @default(0)
   breakdown  Json     @default("{}")
+  // Placering i ligan (lägst = bäst). previousRank speglar standingen vid
+  // föregående omräkning, så trenden upp/ner kan härledas mot currentRank.
+  previousRank  Int?
+  currentRank   Int?
+  rankUpdatedAt DateTime?
   updatedAt  DateTime @updatedAt
+}
+
+// --- Användarsessions-loggning (alla besökare, även utloggade) ---
+
+enum InteractionType {
+  PAGEVIEW
+  CLICK
+  INPUT_FOCUS
+  SUBMIT
+  NAV
+}
+
+// En besökarsession. sessionId genereras på klienten (UUID i localStorage/cookie)
+// och är stabil över sidladdningar. userId fylls i server-side när besökaren är
+// inloggad (annars anonym). IP/reverse-DNS/GeoIP berikas vid första sikten.
+model SessionLog {
+  id          String   @id @default(uuid())
+  sessionId   String   @unique // klientgenererad UUID
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+
+  ip          String?
+  ipReverse   String? // reverse DNS (PTR), null om okänd/misslyckad
+  // GeoIP (ip-api.com) — alla nullable, lagras bara om uppslaget lyckas
+  country     String?
+  countryCode String?
+  region      String?
+  city        String?
+  lat         Float?
+  lon         Float?
+  isp         String?
+  org         String?
+  asn         String? // ip-api "as"-fält
+
+  userAgent   String?
+  referrer    String? // document.referrer vid första sikten
+  landingPath String? // första route besökaren landade på
+
+  firstSeen   DateTime @default(now())
+  lastSeen    DateTime @updatedAt
+
+  events      InteractionEvent[]
+
+  @@index([userId])
+  @@index([lastSeen])
+}
+
+// En enskild, meningsfull UI-interaktion eller sidvisning.
+model InteractionEvent {
+  id          String          @id @default(uuid())
+  session     SessionLog      @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+  sessionId   String
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+
+  type        InteractionType
+  path        String? // aktuell route när händelsen inträffade
+  targetTag   String? // t.ex. "button", "a"
+  targetText  String? // trunkerad synlig text/aria-label (max 200 tecken)
+  targetId    String? // elementets id eller name
+  selector    String? // lättviktig CSS-selektor-väg
+  elementLabel String? // aria-label/title/role-baserad etikett
+  x           Int?
+  y           Int?
+  metadata    Json?
+
+  createdAt   DateTime        @default(now())
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([createdAt])
 }

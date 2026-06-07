@@ -1,7 +1,8 @@
-import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { scoreGroupMatch } from "@/lib/scoring";
+import { PageHeading } from "@/components/PageHeading";
 
 export const dynamic = "force-dynamic";
 
@@ -109,17 +110,19 @@ function MatchEvents({ det }: { det: MatchDetailsData }) {
 
 export default async function MatcherPage() {
   const user = await getCurrentUser();
-  if (!user) redirect("/");
 
   const [matches, preds] = await Promise.all([
     prisma.match.findMany({
       include: { homeTeam: true, awayTeam: true },
       orderBy: { matchNumber: "asc" },
     }),
-    prisma.matchPrediction.findMany({
-      where: { userId: user.id },
-      include: { match: { select: { matchNumber: true } } },
-    }),
+    // Utloggade ser matcherna publikt — bara inloggades egna tips visas i tipskolumnen.
+    user
+      ? prisma.matchPrediction.findMany({
+          where: { userId: user.id },
+          include: { match: { select: { matchNumber: true } } },
+        })
+      : [],
   ]);
 
   const predByNum = new Map(preds.map((p) => [p.match.matchNumber, p]));
@@ -136,11 +139,9 @@ export default async function MatcherPage() {
 
   return (
     <div>
-      <div className="mb-5">
-        <h1 className="text-2xl font-extrabold">Matcher</h1>
-        <p className="text-sm text-slate-400">Alla 104 matcher — resultat och dina tips.</p>
-      </div>
-
+      <PageHeading
+        title="Matcher"
+      >
       <div className="space-y-3">
         {[...byDate.entries()].map(([date, ms]) => (
           <section key={date}>
@@ -151,8 +152,8 @@ export default async function MatcherPage() {
               <span className="text-[10px] text-slate-600">{ms.length}st</span>
             </div>
 
-            {/* Match rows – 2-column on desktop */}
-            <div className="sm:grid sm:grid-cols-2">
+            {/* Match rows – 2-column on desktop, boxat i ett kort som övriga flikar */}
+            <div className="card overflow-hidden p-0 sm:grid sm:grid-cols-2">
               {ms.map((m) => {
                 const pred = predByNum.get(m.matchNumber);
                 const finished = m.status === "FINISHED" && m.homeScore != null && m.awayScore != null;
@@ -175,6 +176,8 @@ export default async function MatcherPage() {
                 const awaySide = m.awayTeam
                   ? `${m.awayTeam.flag} ${m.awayTeam.code}`
                   : (m.awaySlot ?? "?");
+                const homeGroupHref = m.homeTeam?.groupId ? `/grupper#grupp-${m.homeTeam.groupId}` : null;
+                const awayGroupHref = m.awayTeam?.groupId ? `/grupper#grupp-${m.awayTeam.groupId}` : null;
                 const label = m.stage === "GROUP"
                   ? (m.groupId ?? "")
                   : (STAGE_SHORT[m.stage] ?? m.stage);
@@ -200,7 +203,17 @@ export default async function MatcherPage() {
                     <span className="text-right text-slate-500 tabular-nums">{time}</span>
 
                     {/* Home */}
-                    <span className="min-w-0 truncate text-right font-medium text-slate-200">{homeSide}</span>
+                    {homeGroupHref ? (
+                      <Link
+                        href={homeGroupHref}
+                        className="min-w-0 truncate text-right font-medium text-slate-200 transition hover:text-flag-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flag-500"
+                        title={`Visa gruppen för ${homeSide}`}
+                      >
+                        {homeSide}
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 truncate text-right font-medium text-slate-200">{homeSide}</span>
+                    )}
 
                     {/* Score / placeholder */}
                     <span className={`rounded py-0.5 text-center font-bold tabular-nums ${
@@ -216,7 +229,17 @@ export default async function MatcherPage() {
                     </span>
 
                     {/* Away */}
-                    <span className="min-w-0 truncate font-medium text-slate-200">{awaySide}</span>
+                    {awayGroupHref ? (
+                      <Link
+                        href={awayGroupHref}
+                        className="min-w-0 truncate font-medium text-slate-200 transition hover:text-flag-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flag-500"
+                        title={`Visa gruppen för ${awaySide}`}
+                      >
+                        {awaySide}
+                      </Link>
+                    ) : (
+                      <span className="min-w-0 truncate font-medium text-slate-200">{awaySide}</span>
+                    )}
 
                     {/* Label + tip */}
                     <div className="flex flex-col items-end gap-0.5">
@@ -232,14 +255,14 @@ export default async function MatcherPage() {
 
                 if (!hasDetails) {
                   return (
-                    <div key={m.id} className={`${gridCls} border-b border-white/[0.06]`}>
+                    <div key={m.id} className={`${gridCls} border-b border-white/[0.06] last:border-0`}>
                       {row}
                     </div>
                   );
                 }
 
                 return (
-                  <details key={m.id} className="group border-b border-white/[0.06]">
+                  <details key={m.id} className="group border-b border-white/[0.06] last:border-0">
                     <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                       <div className={gridCls}>{row}</div>
                       <MatchEventsPreview det={det!} />
@@ -252,6 +275,7 @@ export default async function MatcherPage() {
           </section>
         ))}
       </div>
+      </PageHeading>
     </div>
   );
 }

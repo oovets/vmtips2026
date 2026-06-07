@@ -1,0 +1,33 @@
+{
+  "sources": [
+    "https://en.wikipedia.org/wiki/Sweden_national_football_team_manager",
+    "https://en.wikipedia.org/wiki/Sweden_men%27s_national_football_team"
+  ],
+  "teams": [
+    {
+      "code": "SWE",
+      "eras": [
+        {
+          "coach": "Lars Lagerbäck",
+          "from": "2000-01-01",
+          "to": "2009-10-11"
+        },
+        {
+          "coach": "Erik Hamrén",
+          "from": "2009-11-04",
+          "to": "2016-06-22"
+        },
+        {
+          "coach": "Janne Andersson",
+          "from": "2016-06-23",
+          "to": "2023-11-30"
+        },
+        {
+          "coach": "Jon Dahl Tomasson",
+          "from": "2024-03-01",
+          "to": null
+        }
+      ]
+    }
+  ]
+}

@@ -3,12 +3,25 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 
 // Topplista för den inloggade spelarens liga (uppdateras via SWR-polling).
+// Utloggade besökare ser en publik topplista för den äldsta (default-)ligan.
 export async function GET() {
   const me = await getCurrentUser();
-  if (!me) return NextResponse.json({ error: "Ej inloggad" }, { status: 401 });
+
+  // Vilken liga ska visas? Inloggad = egen liga. Utloggad = äldsta ligan (publik vy).
+  let leagueId = me?.leagueId ?? null;
+  let leagueName = me?.league.name ?? null;
+  if (!leagueId) {
+    const defaultLeague = await prisma.league.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true },
+    });
+    if (!defaultLeague) return NextResponse.json({ leagueName: null, rows: [] });
+    leagueId = defaultLeague.id;
+    leagueName = defaultLeague.name;
+  }
 
   const users = await prisma.user.findMany({
-    where: { leagueId: me.leagueId },
+    where: { leagueId },
     include: {
       score: true,
       bracketPredictions: {
@@ -48,7 +61,7 @@ export async function GET() {
         breakdown: (u.score?.breakdown as Record<string, number> | null) ?? null,
         champion: tag(champId),
         finalists,
-        isMe: u.id === me.id,
+        isMe: me ? u.id === me.id : false,
       };
     })
     .sort((a, b) => b.total - a.total || a.displayName.localeCompare(b.displayName));
@@ -61,5 +74,5 @@ export async function GET() {
     return { ...r, rank };
   });
 
-  return NextResponse.json({ leagueName: me.league.name, rows: ranked });
+  return NextResponse.json({ leagueName, rows: ranked });
 }

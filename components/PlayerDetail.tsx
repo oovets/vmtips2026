@@ -20,7 +20,8 @@ interface Detail {
   isMe: boolean;
   reveal: boolean;
   total: number;
-  breakdown?: { groupMatches: number; advancement: number; knockout: number; champion: number };
+  breakdown?: { groupMatches: number; advancement: number; knockout: number; champion: number; topScorer: number };
+  topScorer?: { player: string; team: Tag | null } | null;
   stats?: {
     tippedMatches: number;
     groupRankingsSet: number;
@@ -75,13 +76,22 @@ export function PlayerDetail({ id }: { id: string }) {
       {/* Poäng-breakdown */}
       <div>
         <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Poäng</h4>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <Stat label="Gruppspel" value={b.groupMatches} />
           <Stat label="Vidare" value={b.advancement} />
           <Stat label="Slutspel" value={b.knockout} />
           <Stat label="Mästare" value={b.champion} />
+          <Stat label="Skyttekung" value={b.topScorer ?? 0} />
         </div>
       </div>
+
+      {data.topScorer && (
+        <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-sm">
+          <span className="text-slate-400">⚽ Skyttekung-tips: </span>
+          <strong className="text-slate-200">{data.topScorer.player}</strong>
+          {data.topScorer.team && <span className="ml-1 text-slate-400">({tag(data.topScorer.team)})</span>}
+        </div>
+      )}
 
       {/* Tippningsprofil */}
       <div>
@@ -106,10 +116,10 @@ export function PlayerDetail({ id }: { id: string }) {
           <div style={{ width: `${pct(s.outcomeDist.draw)}%` }} className="bg-slate-500" />
           <div style={{ width: `${pct(s.outcomeDist.away)}%` }} className="bg-flag-500" />
         </div>
-        <div className="mt-1 flex justify-between text-[11px] text-slate-400">
-          <span>Hemma {s.outcomeDist.home} ({pct(s.outcomeDist.home)}%)</span>
-          <span>Kryss {s.outcomeDist.draw} ({pct(s.outcomeDist.draw)}%)</span>
-          <span>Borta {s.outcomeDist.away} ({pct(s.outcomeDist.away)}%)</span>
+        <div className="mt-1 flex flex-wrap justify-between gap-x-2 text-[11px] text-slate-400">
+          <span className="whitespace-nowrap">Hemma {s.outcomeDist.home} ({pct(s.outcomeDist.home)}%)</span>
+          <span className="whitespace-nowrap">Kryss {s.outcomeDist.draw} ({pct(s.outcomeDist.draw)}%)</span>
+          <span className="whitespace-nowrap">Borta {s.outcomeDist.away} ({pct(s.outcomeDist.away)}%)</span>
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-400">
           {s.topScoreline && <span>Vanligaste resultat: <span className="text-slate-200">{s.topScoreline.label}</span> (×{s.topScoreline.count})</span>}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
+import { rateLimit } from "@/lib/rate-limit";
 import type { FormEntry } from "@/lib/football-api";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,11 @@ export const maxDuration = 60;
 export async function POST() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Ej inloggad" }, { status: 401 });
+
+  // Varje anrop kostar pengar (Anthropic). Begränsa per användare.
+  if (!rateLimit(`analyze:${user.id}`, 3, 60_000)) {
+    return NextResponse.json({ error: "Vänta lite mellan analyser." }, { status: 429 });
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "ANTHROPIC_API_KEY saknas" }, { status: 503 });

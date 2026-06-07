@@ -1,4 +1,6 @@
-// Pollas av Vercel Cron. Skydd: header "x-cron-secret", ?secret= eller Bearer = CRON_SECRET.
+// Pollas av Vercel Cron. Skydd: header "x-cron-secret" eller Bearer = CRON_SECRET.
+// OBS: hemligheten skickas aldrig som query-param — den skulle hamna i
+// server-/proxy-/CDN-loggar och webbläsarhistorik.
 
 import { NextResponse } from "next/server";
 import { syncResults, syncMatchDetails } from "@/lib/sync-service";
@@ -6,10 +8,8 @@ import { syncResults, syncMatchDetails } from "@/lib/sync-service";
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
-  const url = new URL(req.url);
   return (
     req.headers.get("x-cron-secret") === secret ||
-    url.searchParams.get("secret") === secret ||
     req.headers.get("authorization") === `Bearer ${secret}`
   );
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPin, verifyPin, uniqueLoginCode } from "@/lib/auth";
 import { setSessionCookie } from "@/lib/session";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 const schema = z.object({
   joinCode: z.string().trim().min(4).max(10),
@@ -11,6 +12,11 @@ const schema = z.object({
 });
 
 export async function POST(req: Request) {
+  // Skydda mot gissning av både liga-koder och befintliga spelares PIN.
+  if (!rateLimit(`join:${clientIp(req)}`, 10, 60_000)) {
+    return NextResponse.json({ error: "För många försök — vänta en minut och försök igen." }, { status: 429 });
+  }
+
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Ogiltig input" }, { status: 400 });

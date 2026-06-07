@@ -29,6 +29,7 @@ interface Props {
     scores: Record<number, { h: number; a: number }>;
     outcomes: Record<number, "1" | "X" | "2">;
     koWinners: Record<number, string>;
+    topScorer: { player: string; teamId: string };
   };
   locked: boolean;
   submitted: boolean;
@@ -48,6 +49,8 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted, t
   });
   const [outcomes, setOutcomes] = useState<Record<number, "1" | "X" | "2">>(initial.outcomes ?? {});
   const [koWinners, setKoWinners] = useState<Record<number, string>>(initial.koWinners);
+  const [topScorerPlayer, setTopScorerPlayer] = useState<string>(initial.topScorer?.player ?? "");
+  const [topScorerTeamId, setTopScorerTeamId] = useState<string>(initial.topScorer?.teamId ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
@@ -70,6 +73,7 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted, t
   }, []);
 
   const teamsById = useMemo(() => Object.fromEntries(teams.map((t) => [t.id, t])), [teams]);
+  const teamsSorted = useMemo(() => [...teams].sort((a, b) => a.name.localeCompare(b.name, "sv")), [teams]);
 
   const groups = useMemo(
     () =>
@@ -307,7 +311,14 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted, t
       const res = await fetch("/api/predictions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submit, matchPreds, groupPreds, bracketPreds }),
+        body: JSON.stringify({
+          submit,
+          matchPreds,
+          groupPreds,
+          bracketPreds,
+          topScorerPlayer: topScorerPlayer.trim() || null,
+          topScorerTeamId: topScorerTeamId || null,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -354,8 +365,45 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted, t
         )}
       </div>
 
+      {/* Frivilligt: VM:s skyttekung. Påverkar inte inlämningskravet. */}
+      <div className="card p-4">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <h2 className="text-base font-bold">⚽ VM:s skyttekung</h2>
+          <span className="chip bg-white/5 text-[10px] text-slate-400">frivilligt</span>
+          <span className="ml-auto text-[11px] text-slate-500">Rätt gissning ger bonuspoäng</span>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            value={topScorerPlayer}
+            onChange={(e) => { setTopScorerPlayer(e.target.value); setMsg(null); }}
+            placeholder="Spelarnamn, t.ex. Kylian Mbappé"
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-night-900/80 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-600 focus:border-pitch-500/60 focus:outline-none"
+            maxLength={80}
+          />
+          <select
+            value={topScorerTeamId}
+            onChange={(e) => { setTopScorerTeamId(e.target.value); setMsg(null); }}
+            className="shrink-0 rounded-lg border border-white/10 bg-night-900/80 px-3 py-2 text-sm text-slate-100 focus:border-pitch-500/60 focus:outline-none sm:w-52"
+          >
+            <option value="">Lag (valfritt)</option>
+            {teamsSorted.map((t) => (
+              <option key={t.id} value={t.id}>{t.flag} {t.name}</option>
+            ))}
+          </select>
+        </div>
+        {topScorerPlayer.trim() && (
+          <button
+            onClick={() => { setTopScorerPlayer(""); setTopScorerTeamId(""); setMsg(null); }}
+            className="mt-2 text-[11px] text-slate-500 underline hover:text-slate-300"
+          >
+            Rensa skyttekung-tips
+          </button>
+        )}
+      </div>
+
       {/* Flikar + knappar på samma rad (sticky) */}
-      <div className="sticky top-[60px] z-20 flex items-center gap-2 border-b border-white/10 bg-night-950/95 pb-3 pt-1 backdrop-blur">
+      <div className="sticky top-[60px] z-20 flex flex-wrap items-center gap-2 border-b border-white/10 bg-night-950/95 pb-3 pt-1 backdrop-blur">
         <div className="flex rounded-xl bg-night-900/80 p-1 gap-1">
           <button
             onClick={() => setTab("group")}
@@ -370,7 +418,7 @@ export function TippingForm({ teams, groupMatches, initial, locked, submitted, t
             Slutspel
           </button>
         </div>
-        <div className="ml-auto flex gap-1.5">
+        <div className="ml-auto flex flex-wrap justify-end gap-1.5">
           {aiVisible && (
             <button
               onClick={analyzeAndApply}

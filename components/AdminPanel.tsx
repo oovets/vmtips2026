@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminManage } from "./AdminManage";
+import { AdminLogs } from "./AdminLogs";
+import { AdminGuestbook } from "./AdminGuestbook";
 
 interface MatchRow {
   matchNumber: number;
@@ -43,14 +45,24 @@ interface LeagueRow {
   users: UserRow[];
 }
 
-type Tab = "matches" | "manage";
+type Tab = "matches" | "manage" | "logs" | "guestbook";
+
+interface TeamLite {
+  id: string;
+  name: string;
+  flag: string;
+}
 
 export function AdminPanel({
   matches,
   leagues,
+  teams,
+  topScorer,
 }: {
   matches: MatchRow[];
   leagues: LeagueRow[];
+  teams: TeamLite[];
+  topScorer: { player: string; teamId: string };
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("matches");
@@ -58,6 +70,16 @@ export function AdminPanel({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [scorerPlayer, setScorerPlayer] = useState(topScorer.player);
+  const [scorerTeamId, setScorerTeamId] = useState(topScorer.teamId);
+
+  async function saveTopScorer() {
+    const ok = await call("/api/admin/top-scorer", {
+      player: scorerPlayer.trim() || null,
+      teamId: scorerTeamId || null,
+    });
+    if (ok) setMsg(scorerPlayer.trim() ? "✅ Skyttekung-facit sparat och poäng omräknade." : "✅ Skyttekung-facit rensat.");
+  }
 
   function update(n: number, patch: Partial<MatchRow>) {
     setRows((prev) => prev.map((r) => (r.matchNumber === n ? { ...r, ...patch } : r)));
@@ -143,6 +165,22 @@ export function AdminPanel({
           >
             Ligor &amp; Spelare
           </button>
+          <button
+            onClick={() => setTab("logs")}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+              tab === "logs" ? "bg-pitch-500 text-white" : "text-slate-300 hover:text-white"
+            }`}
+          >
+            Loggar
+          </button>
+          <button
+            onClick={() => setTab("guestbook")}
+            className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+              tab === "guestbook" ? "bg-pitch-500 text-white" : "text-slate-300 hover:text-white"
+            }`}
+          >
+            Klotterplank
+          </button>
         </div>
 
         {tab === "matches" && (
@@ -178,6 +216,39 @@ export function AdminPanel({
 
       {msg && tab === "matches" && (
         <p className="rounded-lg bg-white/5 px-4 py-2 text-sm">{msg}</p>
+      )}
+
+      {/* VM:s skyttekung — facit (frivilligt tips) */}
+      {tab === "matches" && (
+        <div className="card p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="text-sm font-bold">⚽ VM:s skyttekung — facit</h3>
+            <span className="text-[11px] text-slate-500">Spara namnet så får spelare med rätt tips bonuspoäng</span>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              value={scorerPlayer}
+              onChange={(e) => setScorerPlayer(e.target.value)}
+              placeholder="Skyttekungens namn"
+              className="input min-w-0 flex-1"
+              maxLength={80}
+            />
+            <select
+              value={scorerTeamId}
+              onChange={(e) => setScorerTeamId(e.target.value)}
+              className="input sm:w-52"
+            >
+              <option value="">Lag (valfritt)</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.flag} {t.name}</option>
+              ))}
+            </select>
+            <button onClick={saveTopScorer} disabled={busy} className="btn-primary btn-sm shrink-0">
+              Spara facit
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Matcher-fliken */}
@@ -255,6 +326,12 @@ export function AdminPanel({
 
       {/* Hantera-fliken */}
       {tab === "manage" && <AdminManage leagues={leagues} />}
+
+      {/* Loggar-fliken */}
+      {tab === "logs" && <AdminLogs />}
+
+      {/* Klotterplank-fliken */}
+      {tab === "guestbook" && <AdminGuestbook />}
     </div>
   );
 }

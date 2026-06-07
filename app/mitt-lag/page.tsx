@@ -45,6 +45,8 @@ export default async function MittLagPage() {
   const koWinners: Record<number, string> = {};
   for (const b of bracketPreds) if (b.winnerTeamId) koWinners[b.matchNumber] = b.winnerTeamId;
 
+  const topScorer = { player: user.topScorerPlayer ?? "", teamId: user.topScorerTeamId ?? "" };
+
   const mappedTeams = teams.map((t) => ({
     id: t.id,
     name: t.name,
@@ -65,7 +67,7 @@ export default async function MittLagPage() {
         awayTeamId: m.awayTeamId!,
         kickoff: m.kickoff.toISOString(),
       }))}
-      initial={{ scores, outcomes, koWinners }}
+      initial={{ scores, outcomes, koWinners, topScorer }}
       locked={isLocked()}
       submitted={user.submitted}
       tippingMode={tippingMode}

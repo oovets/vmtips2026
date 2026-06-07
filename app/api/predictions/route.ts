@@ -17,6 +17,9 @@ const x12Pred = z.object({
 
 const schema = z.object({
   submit: z.boolean().optional().default(false),
+  // Frivilligt skyttekung-tips. null/tom sträng = inget tips. Inte ett krav för inlämning.
+  topScorerPlayer: z.string().trim().max(80).nullable().optional(),
+  topScorerTeamId: z.string().nullable().optional(),
   matchPreds: z.array(z.union([exactPred, x12Pred])).default([]),
   groupPreds: z
     .array(
@@ -58,6 +61,8 @@ export async function GET() {
     submitted: user.submitted,
     locked: isLocked(),
     tippingMode: user.league.tippingMode,
+    topScorerPlayer: user.topScorerPlayer,
+    topScorerTeamId: user.topScorerTeamId,
     matchPreds: matchPreds.map((p) => ({
       matchNumber: p.match.matchNumber,
       predHome: p.predHome,
@@ -80,7 +85,11 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Ogiltig input" }, { status: 400 });
   }
-  const { submit, matchPreds, groupPreds, bracketPreds } = parsed.data;
+  const { submit, matchPreds, groupPreds, bracketPreds, topScorerPlayer, topScorerTeamId } = parsed.data;
+
+  // Tomt skyttekung-namn lagras som null (inget tips). Lag-id behålls bara om namn finns.
+  const cleanScorer = topScorerPlayer && topScorerPlayer.trim().length > 0 ? topScorerPlayer.trim() : null;
+  const cleanScorerTeam = cleanScorer ? (topScorerTeamId ?? null) : null;
 
   // Vid inlämning: kräv komplett tips (alla 72 gruppmatcher, 12 grupprankningar och
   // hela slutspelsträdet). Bronsmatchen (#103) räknas inte — den går inte att tippa
@@ -111,6 +120,13 @@ export async function POST(req: Request) {
   const matches = await prisma.match.findMany({ select: { id: true, matchNumber: true } });
   const idByNumber = new Map(matches.map((m) => [m.matchNumber, m.id]));
 
+  // Validera ev. lag-id mot riktiga lag (annars spara null).
+  let validScorerTeam: string | null = null;
+  if (cleanScorerTeam) {
+    const team = await prisma.team.findUnique({ where: { id: cleanScorerTeam }, select: { id: true } });
+    validScorerTeam = team?.id ?? null;
+  }
+
   await prisma.$transaction([
     prisma.matchPrediction.deleteMany({ where: { userId: user.id } }),
     prisma.matchPrediction.createMany({
@@ -137,7 +153,11 @@ export async function POST(req: Request) {
     }),
     prisma.user.update({
       where: { id: user.id },
-      data: { submitted: submit ? true : user.submitted },
+      data: {
+        submitted: submit ? true : user.submitted,
+        topScorerPlayer: cleanScorer,
+        topScorerTeamId: validScorerTeam,
+      },
     }),
   ]);
 

@@ -9,6 +9,7 @@ export const SCORING = {
   advanceOrderBonus: 2, // bonus om båda topp-2 i exakt rätt ordning
   ko: { R16: 2, QF: 4, SF: 6, FINAL: 8 } as Record<string, number>, // lag som når rundan
   champion: 15, // rätt världsmästare
+  topScorer: 10, // rätt VM-skyttekung (frivilligt tips)
 };
 
 export type Stage = "R16" | "QF" | "SF" | "FINAL";
@@ -20,6 +21,10 @@ export interface ScoringInput {
   groupPreds: { groupId: string; rank1: string; rank2: string }[];
   actualReach: Record<Stage | "CHAMPION", Set<string>>;
   predReach: Record<Stage | "CHAMPION", Set<string>>;
+  // Frivilligt skyttekung-tips. topScorerPred = spelarens gissning (fritext),
+  // topScorerActual = facit (admin). Jämförs skiftlägesokänsligt och trimmat.
+  topScorerPred?: string | null;
+  topScorerActual?: string | null;
 }
 
 export interface Breakdown {
@@ -27,9 +32,15 @@ export interface Breakdown {
   advancement: number;
   knockout: number;
   champion: number;
+  topScorer: number;
   total: number;
   exactCount: number;
   correctOutcomeCount: number;
+}
+
+// Normaliserar ett spelarnamn för jämförelse (trim, gemener, kollapsa mellanslag).
+function normalizeName(s: string | null | undefined): string {
+  return (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
@@ -60,6 +71,7 @@ export function computeScore(input: ScoringInput): Breakdown {
     advancement: 0,
     knockout: 0,
     champion: 0,
+    topScorer: 0,
     total: 0,
     exactCount: 0,
     correctOutcomeCount: 0,
@@ -101,6 +113,12 @@ export function computeScore(input: ScoringInput): Breakdown {
     if (input.actualReach.CHAMPION.has(teamId)) b.champion += SCORING.champion;
   }
 
-  b.total = b.groupMatches + b.advancement + b.knockout + b.champion;
+  // 5. Skyttekung (frivilligt). Poäng om facit finns och namnet matchar.
+  const actualScorer = normalizeName(input.topScorerActual);
+  if (actualScorer && normalizeName(input.topScorerPred) === actualScorer) {
+    b.topScorer += SCORING.topScorer;
+  }
+
+  b.total = b.groupMatches + b.advancement + b.knockout + b.champion + b.topScorer;
   return b;
 }

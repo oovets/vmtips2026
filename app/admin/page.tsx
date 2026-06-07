@@ -2,6 +2,7 @@ import { isAdminAuthed } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { AdminPanel } from "@/components/AdminPanel";
 import { AdminLogin } from "@/components/AdminLogin";
+import { PageHeading } from "@/components/PageHeading";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,7 @@ export default async function AdminPage() {
     return <AdminLogin />;
   }
 
-  const [matches, leagues] = await Promise.all([
+  const [matches, leagues, allTeams, topScorerFact] = await Promise.all([
     prisma.match.findMany({
       include: { homeTeam: true, awayTeam: true },
       orderBy: { matchNumber: "asc" },
@@ -27,6 +28,8 @@ export default async function AdminPage() {
       },
       orderBy: { createdAt: "asc" },
     }),
+    prisma.team.findMany({ select: { id: true, name: true, flag: true }, orderBy: { name: "asc" } }),
+    prisma.tournamentFact.findUnique({ where: { key: "topScorer" } }),
   ]);
 
   // ── Tips-status per spelare (för admins fulla insyn i pågående tips) ──────────
@@ -43,7 +46,7 @@ export default async function AdminPage() {
     allUserIds.length
       ? prisma.matchPrediction.findMany({
           where: { userId: { in: allUserIds } },
-          select: { userId: true, predHome: true, predAway: true, predOutcome: true },
+          select: { userId: true, predHome: true, predAway: true, predOutcome: true, match: { select: { matchNumber: true } } },
         })
       : [],
     allUserIds.length
@@ -59,6 +62,7 @@ export default async function AdminPage() {
 
   const tippedByUser = new Map<string, number>();
   for (const p of matchPreds) {
+    if (p.match.matchNumber < 1 || p.match.matchNumber > TOTAL_GROUP_MATCHES) continue;
     const mode = modeByUser.get(p.userId);
     const filled = mode === "X12" ? p.predOutcome != null : p.predHome != null && p.predAway != null;
     if (filled) tippedByUser.set(p.userId, (tippedByUser.get(p.userId) ?? 0) + 1);
@@ -70,13 +74,12 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-extrabold">Admin</h1>
-        <p className="text-sm text-slate-400">
-          Synka resultat, mata in manuellt, hantera ligor och spelare.
-        </p>
-      </div>
+      <PageHeading
+        title="Admin"
+      >
       <AdminPanel
+        teams={allTeams}
+        topScorer={{ player: topScorerFact?.value ?? "", teamId: topScorerFact?.teamId ?? "" }}
         matches={matches.map((m) => ({
           matchNumber: m.matchNumber,
           stage: m.stage,
@@ -111,6 +114,7 @@ export default async function AdminPage() {
           })),
         }))}
       />
+      </PageHeading>
     </div>
   );
 }

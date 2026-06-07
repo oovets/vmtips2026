@@ -1,0 +1,318 @@
+{
+  "scrapedAt": "2026-06-06T21:59:14.533Z",
+  "source": "en.wikipedia.org",
+  "matches": [
+    {
+      "stage": "group",
+      "date": "2025-09-05",
+      "swedenHome": false,
+      "opponent": "SVN",
+      "sweScore": 2,
+      "oppScore": 2,
+      "result": "D",
+      "venue": "Stožice Stadium, Ljubljana",
+      "attendance": 15679,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Lovrić",
+          "minute": 46,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Vipotnik",
+          "minute": 90,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Elanga",
+          "minute": 18,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Ayari",
+          "minute": 73,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "group",
+      "date": "2025-09-08",
+      "swedenHome": false,
+      "opponent": "KOS",
+      "sweScore": 0,
+      "oppScore": 2,
+      "result": "L",
+      "venue": "Fadil Vokrri Stadium, Pristina",
+      "attendance": 12887,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Rexhbeçaj",
+          "minute": 26,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Muriqi",
+          "minute": 42,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "group",
+      "date": "2025-10-10",
+      "swedenHome": true,
+      "opponent": "SUI",
+      "sweScore": 0,
+      "oppScore": 2,
+      "result": "L",
+      "venue": "Nationalarenan, Solna",
+      "attendance": 50151,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Xhaka",
+          "minute": 65,
+          "stoppage": 0,
+          "penalty": true,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Manzambi",
+          "minute": 90,
+          "stoppage": 4,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "group",
+      "date": "2025-10-13",
+      "swedenHome": true,
+      "opponent": "KOS",
+      "sweScore": 0,
+      "oppScore": 1,
+      "result": "L",
+      "venue": "Ullevi, Gothenburg",
+      "attendance": 36571,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Asllani",
+          "minute": 32,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "group",
+      "date": "2025-11-15",
+      "swedenHome": false,
+      "opponent": "SUI",
+      "sweScore": 1,
+      "oppScore": 4,
+      "result": "L",
+      "venue": "Stade de Genève, Geneva",
+      "attendance": 26458,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Embolo",
+          "minute": 12,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Xhaka",
+          "minute": 60,
+          "stoppage": 0,
+          "penalty": true,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Ndoye",
+          "minute": 75,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Manzambi",
+          "minute": 90,
+          "stoppage": 4,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Nygren",
+          "minute": 33,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "group",
+      "date": "2025-11-18",
+      "swedenHome": true,
+      "opponent": "SVN",
+      "sweScore": 1,
+      "oppScore": 1,
+      "result": "D",
+      "venue": "Nationalarenan, Solna",
+      "attendance": 25724,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "SWE",
+          "player": "Lundgren",
+          "minute": 87,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Elšnik",
+          "minute": 64,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "playoff",
+      "date": "2026-03-26",
+      "swedenHome": false,
+      "opponent": "UKR",
+      "sweScore": 3,
+      "oppScore": 1,
+      "result": "W",
+      "venue": "Estadi Ciutat de València, Valencia",
+      "attendance": 18846,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "OPP",
+          "player": "Ponomarenko",
+          "minute": 90,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Gyökeres",
+          "minute": 6,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Gyökeres",
+          "minute": 51,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Gyökeres",
+          "minute": 73,
+          "stoppage": 0,
+          "penalty": true,
+          "ownGoal": false
+        }
+      ]
+    },
+    {
+      "stage": "playoff",
+      "date": "2026-03-31",
+      "swedenHome": true,
+      "opponent": "POL",
+      "sweScore": 3,
+      "oppScore": 2,
+      "result": "W",
+      "venue": "Nationalarenan, Solna",
+      "attendance": 49627,
+      "sentOff": 0,
+      "goals": [
+        {
+          "side": "SWE",
+          "player": "Elanga",
+          "minute": 20,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Lagerbielke",
+          "minute": 44,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "SWE",
+          "player": "Gyökeres",
+          "minute": 88,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Zalewski",
+          "minute": 33,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        },
+        {
+          "side": "OPP",
+          "player": "Świderski",
+          "minute": 55,
+          "stoppage": 0,
+          "penalty": false,
+          "ownGoal": false
+        }
+      ]
+    }
+  ]
+}

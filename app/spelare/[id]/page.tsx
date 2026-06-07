@@ -1,8 +1,9 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { getCurrentUser, isAdminAuthed } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { isLocked } from "@/lib/lock";
 import { BRACKET, BRACKET_BY_NUMBER, type KnockoutStage } from "@/lib/bracket-template";
+import { PageHeading } from "@/components/PageHeading";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,6 @@ const STAGE_ORDER: { stage: KnockoutStage; title: string; cols: string }[] = [
 
 export default async function PlayerPage({ params }: { params: { id: string } }) {
   const me = await getCurrentUser();
-  if (!me) redirect("/");
 
   const adminAuthed = await isAdminAuthed();
 
@@ -33,8 +33,21 @@ export default async function PlayerPage({ params }: { params: { id: string } })
       matchPredictions: { include: { match: { select: { matchNumber: true } } } },
     },
   });
-  // Admin har full insyn i alla ligor; vanliga spelare bara sin egen liga.
-  if (!target || (!adminAuthed && target.leagueId !== me.leagueId)) notFound();
+  if (!target) notFound();
+
+  // Synlighet: admin har full insyn i alla ligor. Inloggade spelare ser sin egen
+  // liga. Utloggade besökare ser den publika (äldsta) ligan.
+  if (!adminAuthed) {
+    if (me) {
+      if (target.leagueId !== me.leagueId) notFound();
+    } else {
+      const defaultLeague = await prisma.league.findFirst({
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+      });
+      if (!defaultLeague || target.leagueId !== defaultLeague.id) notFound();
+    }
+  }
 
   const [teams, groupMatches] = await Promise.all([
     prisma.team.findMany(),
@@ -51,7 +64,7 @@ export default async function PlayerPage({ params }: { params: { id: string } })
 
   const b = (target.score?.breakdown as Record<string, number> | undefined) ?? {};
   // Admin ser alltid (full insyn). Annars: efter lås, eller sin egen sida.
-  const reveal = isLocked() || target.id === me.id || adminAuthed;
+  const reveal = isLocked() || (me ? target.id === me.id : false) || adminAuthed;
   const tippingMode = target.league.tippingMode as "EXACT" | "X12";
 
   // Tips-uppslag per matchnummer.
@@ -92,26 +105,20 @@ export default async function PlayerPage({ params }: { params: { id: string } })
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <a href={adminAuthed ? "/admin" : "/leaderboard"} className="text-xs text-slate-400 hover:text-slate-200">
-            ← {adminAuthed ? "Admin" : "Topplista"}
-          </a>
-          <h1 className="mt-1 text-2xl font-extrabold">{target.displayName}</h1>
-          <p className="text-sm text-slate-400">
-            {target.submitted ? "Lag inlämnat" : "Ej inlämnat"}
-            {target.id === me.id && " · det här är du"}
-            {adminAuthed && target.id !== me.id && (
-              <span className="ml-1 text-flag-300">· {target.league.name} · admininsyn</span>
-            )}
-          </p>
-        </div>
-        <div className="text-right">
-          <div className="text-xs uppercase tracking-wide text-slate-400">Totalpoäng</div>
-          <div className="text-4xl font-extrabold">{target.score?.total ?? 0}</div>
-        </div>
-      </div>
+      <a href={adminAuthed ? "/admin" : "/leaderboard"} className="text-xs text-slate-400 hover:text-slate-200">
+        ← {adminAuthed ? "Admin" : "Topplista"}
+      </a>
 
+      <PageHeading
+        title={target.displayName}
+        aside={
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-slate-400">Totalpoäng</div>
+            <div className="text-4xl font-extrabold">{target.score?.total ?? 0}</div>
+          </div>
+        }
+      >
+      <div className="space-y-6">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Gruppmatcher" value={b.groupMatches ?? 0} />
         <Stat label="Vidare ur grupp" value={b.advancement ?? 0} />
@@ -219,6 +226,8 @@ export default async function PlayerPage({ params }: { params: { id: string } })
           </section>
         </>
       )}
+      </div>
+      </PageHeading>
     </div>
   );
 }
