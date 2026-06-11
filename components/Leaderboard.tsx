@@ -28,8 +28,10 @@ function n(b: Record<string, number> | null, key: string): number {
 }
 
 export function Leaderboard() {
-  const { data, isLoading } = useSWR<{ rows: Row[] }>("/api/leaderboard", fetcher, {
-    refreshInterval: 30000,
+  // Poängen räknas om när en match avslutas — polla tätare medan matcher pågår
+  // (fångar slutsignalen snabbt) och glesare när inget är live.
+  const { data, isLoading } = useSWR<{ rows: Row[]; liveCount?: number }>("/api/leaderboard", fetcher, {
+    refreshInterval: (latest) => ((latest?.liveCount ?? 0) > 0 ? 15000 : 45000),
   });
   // Flera spelare kan vara öppna samtidigt.
   const [open, setOpen] = useState<Set<string>>(new Set());

@@ -14,14 +14,6 @@ import { NewsFeed } from "@/components/NewsFeed";
 import { ResultsHeatmap, type HeatTeam, type HeatCell, type CellState } from "@/components/ResultsHeatmap";
 import { GoalMinuteHeatmap } from "@/components/GoalMinuteHeatmap";
 import { computeGoalMinutes } from "@/lib/goal-minutes";
-import { GroupedBarChart, ComparisonBars, TopScorersGrid } from "@/components/HistoryCharts";
-import {
-  goalsByMinuteBucket,
-  tournamentStats,
-  goalsPerMatchDistribution,
-  dramaStats,
-  topScorersByTournament,
-} from "@/lib/tournament-history";
 import { fetchEspnMatches, lookupEspn, type EspnMatch } from "@/lib/espn";
 import { CountUp } from "@/components/CountUp";
 import { SinceLastVisit } from "@/components/SinceLastVisit";
@@ -280,13 +272,6 @@ export default async function DashboardPage() {
     })),
   );
 
-  // Historiska mästerskapsaggregat (statisk data från Wikipedia-skrapningen).
-  const histMinuteBuckets = goalsByMinuteBucket();
-  const histStats = tournamentStats();
-  const histGoalsPerMatch = goalsPerMatchDistribution();
-  const histDrama = dramaStats();
-  const histScorers = topScorersByTournament(5);
-
   const teamById = new Map(matches.flatMap((m) => [m.homeTeam, m.awayTeam]).filter(Boolean).map((t) => [t!.id, t!]));
   const teamTag = (id?: string | null) => {
     const t = id ? teamById.get(id) : null;
@@ -460,93 +445,27 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <AutoRefresh seconds={60} />
+      {/* Tätare server-refresh medan matcher pågår; lugnare annars. */}
+      <AutoRefresh seconds={live.length > 0 ? 30 : 60} />
 
       <PageHeading
         title="Översikt"
       >
       <div className="flex flex-col gap-6">
-      <Klotterplank initialEntries={guestbookInitial} loggedIn={!!user} />
-
-      <SinceLastVisit rank={me?.rank ?? null} points={me?.total ?? 0} resultTimes={resultTimes} />
-
-      {/* ── Turneringspuls ── */}
+      {/* ── Hero: status nu (live-läget från detta VM ligger alltid högst upp) ── */}
       <section className="animate-fade-in [animation-fill-mode:both]">
-        <SectionHeading title="Turneringspuls">
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <Metric label="Matcher spelade" value={metrics.matchesPlayed} />
-              <Metric label="Mål totalt" value={metrics.totalGoals} />
-              <Metric label="Mål / match" value={metrics.matchesPlayed ? metrics.goalsPerMatch : "–"} decimals={2} />
-              <Metric label="Hållna nollor" value={metrics.cleanSheets} />
-              <Metric label="Gula / Röda" value={`${metrics.yellowCards}/${metrics.redCards}`} />
-              <Metric label="Straffavgöranden" value={metrics.shootouts} />
-            </div>
-            {(metrics.topScoringTeams.length > 0 || metrics.topScorers.length > 0) && (
-              <div className="grid gap-3 md:grid-cols-2">
-                {metrics.topScoringTeams.length > 0 && (
-                  <div className="card p-4">
-                    <h3 className="mb-2 text-sm font-bold">Målfarligaste lag</h3>
-                    <BarList
-                      items={metrics.topScoringTeams.map((t) => ({ label: teamTag(t.teamId), value: t.goals }))}
-                    />
-                  </div>
-                )}
-                {metrics.topScorers.length > 0 && (
-                  <div className="card p-4">
-                    <h3 className="mb-2 text-sm font-bold">Skytteliga</h3>
-                    <BarList items={metrics.topScorers.map((s) => ({ label: s.player, value: s.goals }))} />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </SectionHeading>
-      </section>
-
-      {/* ── Dagens väder på spelorterna ── */}
-      {dayWeather.items.length > 0 && (
-        <section className="animate-fade-in [animation-delay:60ms] [animation-fill-mode:both]">
-          <SectionHeading
-            title={dayWeather.isToday ? "Väder på dagens spelorter" : "Väder på nästa matchdags spelorter"}
-          >
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {dayWeather.items.map((w) => (
-                <div key={w.venue} className="card flex items-center gap-3 p-3">
-                  <span className="text-2xl leading-none" aria-hidden>{w.emoji}</span>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-200" title={w.venue}>{w.city}</div>
-                    <div className="truncate text-[11px] text-slate-400">{w.label}</div>
-                    <div className="mt-0.5 text-xs tabular-nums text-slate-300">
-                      {w.tempC != null ? `${w.tempC}°` : "–"}
-                      {(w.high != null || w.low != null) && (
-                        <span className="ml-1 text-slate-500">
-                          {w.high != null ? `${w.high}°` : "–"} / {w.low != null ? `${w.low}°` : "–"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </SectionHeading>
-        </section>
-      )}
-
-      {/* ── Sök spelare ── */}
-      <PlayerSearchCard />
-
-      {/* ── Hero: status nu ── */}
-      <section className="order-3 animate-fade-in [animation-delay:80ms] [animation-fill-mode:both]">
-        <div className={`card flex flex-col justify-between gap-3 p-5 ${live.length > 0 ? "animate-live-glow border-red-500/40" : ""}`}>
+        <div className={`card flex flex-col justify-between gap-3 p-5 ${live.length > 0 ? "animate-live-glow border-red-500/40 motion-reduce:animate-none" : ""}`}>
           {live.length > 0 ? (
             <>
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-300">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-extrabold tracking-wider text-red-200">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                  </span>
+                  LIVE
                 </span>
-                Live nu{live.length > 1 && <span className="text-slate-500">· {live.length} matcher</span>}
+                Spelas just nu{live.length > 1 && <span className="text-slate-500">· {live.length} matcher</span>}
               </div>
               <div className="space-y-3">
                 {live.map((m) => {
@@ -647,8 +566,75 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      <Klotterplank initialEntries={guestbookInitial} loggedIn={!!user} />
+
+      <SinceLastVisit rank={me?.rank ?? null} points={me?.total ?? 0} resultTimes={resultTimes} />
+
+      {/* ── Turneringspuls ── */}
+      <section className="animate-fade-in [animation-delay:60ms] [animation-fill-mode:both]">
+        <SectionHeading title="Turneringspuls">
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <Metric label="Matcher spelade" value={metrics.matchesPlayed} />
+              <Metric label="Mål totalt" value={metrics.totalGoals} />
+              <Metric label="Mål / match" value={metrics.matchesPlayed ? metrics.goalsPerMatch : "–"} decimals={2} />
+              <Metric label="Hållna nollor" value={metrics.cleanSheets} />
+              <Metric label="Gula / Röda" value={`${metrics.yellowCards}/${metrics.redCards}`} />
+              <Metric label="Straffavgöranden" value={metrics.shootouts} />
+            </div>
+            {(metrics.topScoringTeams.length > 0 || metrics.topScorers.length > 0) && (
+              <div className="grid gap-3 md:grid-cols-2">
+                {metrics.topScoringTeams.length > 0 && (
+                  <div className="card p-4">
+                    <h3 className="mb-2 text-sm font-bold">Målfarligaste lag</h3>
+                    <BarList
+                      items={metrics.topScoringTeams.map((t) => ({ label: teamTag(t.teamId), value: t.goals }))}
+                    />
+                  </div>
+                )}
+                {metrics.topScorers.length > 0 && (
+                  <div className="card p-4">
+                    <h3 className="mb-2 text-sm font-bold">Skytteliga</h3>
+                    <BarList items={metrics.topScorers.map((s) => ({ label: s.player, value: s.goals }))} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </SectionHeading>
+      </section>
+
+      {/* ── Dagens väder på spelorterna ── */}
+      {dayWeather.items.length > 0 && (
+        <section className="animate-fade-in [animation-delay:120ms] [animation-fill-mode:both]">
+          <SectionHeading
+            title={dayWeather.isToday ? "Väder på dagens spelorter" : "Väder på nästa matchdags spelorter"}
+          >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {dayWeather.items.map((w) => (
+                <div key={w.venue} className="card flex items-center gap-3 p-3">
+                  <span className="text-2xl leading-none" aria-hidden>{w.emoji}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-200" title={w.venue}>{w.city}</div>
+                    <div className="truncate text-[11px] text-slate-400">{w.label}</div>
+                    <div className="mt-0.5 text-xs tabular-nums text-slate-300">
+                      {w.tempC != null ? `${w.tempC}°` : "–"}
+                      {(w.high != null || w.low != null) && (
+                        <span className="ml-1 text-slate-500">
+                          {w.high != null ? `${w.high}°` : "–"} / {w.low != null ? `${w.low}°` : "–"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionHeading>
+        </section>
+      )}
+
       {/* ── Fokusmatcher + ligakonsensus ── */}
-      <section className="order-4 animate-fade-in [animation-delay:240ms] [animation-fill-mode:both]">
+      <section className="animate-fade-in [animation-delay:180ms] [animation-fill-mode:both]">
         <SectionHeading
           title={todays.length ? "Dagens matcher" : "Kommande matcher"}
           action={<Link href="/matcher" className="text-pitch-300 hover:underline">Alla matcher →</Link>}
@@ -700,9 +686,10 @@ export default async function DashboardPage() {
                         ? `${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`
                         : "–";
                     const leagueText = t && t.total > 0 ? `1 ${pct("1")}% · X ${pct("X")}% · 2 ${pct("2")}%` : "–";
+                    const isLive = m.status === "LIVE" || live?.state === "in";
 
                     return (
-                      <tr key={m.id} className="text-slate-300">
+                      <tr key={m.id} className={`text-slate-300 ${isLive ? "bg-red-500/[0.06]" : ""}`}>
                         <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-400">
                           {dateKey(m.kickoff)} <span className="text-slate-500">{timeStr(m.kickoff)}</span>
                         </td>
@@ -776,9 +763,10 @@ export default async function DashboardPage() {
                   : odds
                     ? `${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`
                     : "–";
+                const isLive = m.status === "LIVE" || live?.state === "in";
 
                 return (
-                  <div key={m.id} className="p-4">
+                  <div key={m.id} className={`p-4 ${isLive ? "bg-red-500/[0.06]" : ""}`}>
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
                         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{roundLabel}</div>
@@ -845,15 +833,18 @@ export default async function DashboardPage() {
         </SectionHeading>
       </section>
 
-      {/* ── Resultatkarta (heatmap) — placerad under alla grafer ── */}
-      <section className="order-7 animate-fade-in [animation-delay:320ms] [animation-fill-mode:both]">
+      {/* ── Sök spelare ── */}
+      <PlayerSearchCard />
+
+      {/* ── Resultatkarta (heatmap) ── */}
+      <section className="animate-fade-in [animation-delay:240ms] [animation-fill-mode:both]">
         <SectionHeading title="Resultatkarta">
           <ResultsHeatmap teams={heatTeams} />
         </SectionHeading>
       </section>
 
       {/* ── Målminuter (heatmap) ── */}
-      <section className="order-2 animate-fade-in [animation-delay:360ms] [animation-fill-mode:both]">
+      <section className="animate-fade-in [animation-delay:300ms] [animation-fill-mode:both]">
         <SectionHeading title="När faller målen?">
           <GoalMinuteHeatmap
             summary={goalMinutes}
@@ -862,49 +853,8 @@ export default async function DashboardPage() {
         </SectionHeading>
       </section>
 
-      {/* ── Historiska mästerskap (Wikipedia-data) ── */}
-      <section className="order-5 animate-fade-in [animation-delay:380ms] [animation-fill-mode:both]">
-        <SectionHeading title="Så har VM sett ut">
-          <div className="space-y-3">
-            <div>
-              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">När görs målen? (per 10 min)</div>
-              <GroupedBarChart labels={histMinuteBuckets.labels} series={histMinuteBuckets.series} unit="mål" />
-            </div>
-
-            <div>
-              <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Mål per match</div>
-              <GroupedBarChart labels={histGoalsPerMatch.labels} series={histGoalsPerMatch.series} unit="matcher" />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <ComparisonBars title="Mål per match" stats={histStats} value={(s) => s.goalsPerMatch} format={(n) => n.toFixed(2)} />
-              <ComparisonBars title="Andel mål 2:a halvlek" stats={histStats} value={(s) => 100 - s.firstHalfPct} format={(n) => `${n}%`} hint="resten i 1:a" />
-              <ComparisonBars title="Sena mål (76:e+)" stats={histStats} value={(s) => s.lateGoalsPct} format={(n) => `${n}%`} />
-              <ComparisonBars title="Straffmål" stats={histStats} value={(s) => s.penalties} format={(n) => `${n}`} />
-              <ComparisonBars title="Självmål" stats={histStats} value={(s) => s.ownGoals} format={(n) => `${n}`} />
-              <ComparisonBars title="Snittpublik" stats={histStats} value={(s) => s.avgAttendance ?? 0} format={(n) => `${Math.round(n / 1000)}k`} />
-            </div>
-
-            {/* Dramatik & kuriosa */}
-            <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Dramatik &amp; kuriosa</div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <ComparisonBars title="Comebacks" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.comebackPct ?? 0} format={(n) => `${n}%`} hint="låg under, förlorade ej" />
-              <ComparisonBars title="Sen dramatik (mål 85:e+)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.lateDramaPct ?? 0} format={(n) => `${n}%`} hint="andel matcher" />
-              <ComparisonBars title="Straffläggningar" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.shootouts ?? 0} format={(n) => `${n}`} hint="i slutspelet" />
-              <ComparisonBars title="Mållösa (0–0)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.goallessPct ?? 0} format={(n) => `${n}%`} />
-              <ComparisonBars title="Målrika (5+ mål)" stats={histStats} value={(s) => histDrama.find((d) => d.tournament === s.tournament)?.highScoringPct ?? 0} format={(n) => `${n}%`} />
-              <ComparisonBars title="Mål totalt" stats={histStats} value={(s) => s.goals} format={(n) => `${n}`} />
-            </div>
-
-            {/* Skyttekungar genom åren */}
-            <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Skyttekungar genom åren</div>
-            <TopScorersGrid data={histScorers} />
-          </div>
-        </SectionHeading>
-      </section>
-
       {/* ── Trender & snackisar ── */}
-      <section className="order-6 animate-fade-in [animation-delay:400ms] [animation-fill-mode:both]">
+      <section className="animate-fade-in [animation-delay:360ms] [animation-fill-mode:both]">
         <SectionHeading title="Trender & snackisar">
         <div className="grid gap-3 lg:grid-cols-3">
           {/* Ligans mästartips */}
@@ -1012,12 +962,12 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Fotbollsnyheter ── */}
-      <div className="order-8 animate-fade-in [animation-delay:440ms] [animation-fill-mode:both]">
+      <div className="animate-fade-in [animation-delay:420ms] [animation-fill-mode:both]">
         <NewsFeed items={news} swedishSources={SWEDISH_SOURCES} />
       </div>
 
       {/* ── Snack på X ── */}
-      <section className="order-9 animate-fade-in [animation-delay:480ms] [animation-fill-mode:both]">
+      <section className="animate-fade-in [animation-delay:480ms] [animation-fill-mode:both]">
         <SectionHeading title="Snack på X">
         {socialPosts.length > 0 ? (
           <div className="card divide-y divide-white/5">

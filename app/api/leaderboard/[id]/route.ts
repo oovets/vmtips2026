@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/session";
 import { isLocked } from "@/lib/lock";
 import { BRACKET, BRACKET_BY_NUMBER } from "@/lib/bracket-template";
 import { computeDerivedStats, favoriteTeamId } from "@/lib/player-stats";
+import { scoreGroupMatch, SCORING } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -64,12 +65,19 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   const tippingMode = target.league.tippingMode as "EXACT" | "X12";
 
-  const [teams, groupMatches] = await Promise.all([
+  const [teams, groupMatches, leagueScores] = await Promise.all([
     prisma.team.findMany({ select: { id: true, code: true, flag: true, name: true, fifaRank: true } }),
     prisma.match.findMany({
       where: { stage: "GROUP" },
-      select: { matchNumber: true, groupId: true, homeTeamId: true, awayTeamId: true },
+      select: {
+        matchNumber: true, groupId: true, homeTeamId: true, awayTeamId: true,
+        status: true, homeScore: true, awayScore: true, kickoff: true,
+      },
       orderBy: { matchNumber: "asc" },
+    }),
+    prisma.score.findMany({
+      where: { user: { leagueId: target.leagueId } },
+      select: { total: true, breakdown: true },
     }),
   ]);
   const teamById = new Map(teams.map((t) => [t.id, t]));
@@ -131,20 +139,65 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     championSharePct = totalChamps ? Math.round((same / totalChamps) * 100) : null;
   }
 
-  // Träffsäkerhet hittills (avgjorda gruppmatcher som tippats).
-  const finished = await prisma.match.findMany({
-    where: { stage: "GROUP", status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } },
-    select: { matchNumber: true },
-  });
-  const playedTipped = finished.filter((m) => {
-    const p = predByNum.get(m.matchNumber);
-    return p && (tippingMode === "X12" ? p.predOutcome != null : p.predHome != null && p.predAway != null);
-  }).length;
+  // Avgjorda gruppmatcher (redan hämtade ovan) — grund för träffsäkerhet och trend.
+  const finishedGroup = groupMatches.filter(
+    (m) => m.status === "FINISHED" && m.homeScore != null && m.awayScore != null,
+  );
+
+  // Tidslinje: spelarens tips mot facit, match för match, i kronologisk ordning.
+  // Poäng per match räknas bara i EXACT-läge (samma regler som poängmotorn).
+  type HitClass = "EXACT" | "DIFF" | "OUTCOME" | "MISS";
+  const timeline = finishedGroup
+    .slice()
+    .sort((a, b2) => a.kickoff.getTime() - b2.kickoff.getTime() || a.matchNumber - b2.matchNumber)
+    .flatMap((m) => {
+      const p = predByNum.get(m.matchNumber);
+      if (!p) return [];
+      let points: number | null = null;
+      let outcome: HitClass;
+      if (tippingMode === "X12") {
+        if (p.predOutcome == null) return [];
+        const actual = m.homeScore! > m.awayScore! ? "1" : m.homeScore! < m.awayScore! ? "2" : "X";
+        outcome = p.predOutcome === actual ? "OUTCOME" : "MISS";
+      } else {
+        if (p.predHome == null || p.predAway == null) return [];
+        const s = scoreGroupMatch(
+          { predHome: p.predHome, predAway: p.predAway },
+          { homeScore: m.homeScore!, awayScore: m.awayScore! },
+        );
+        points = s.points;
+        outcome = s.exact ? "EXACT" : !s.correct ? "MISS" : s.points === SCORING.correctGoalDiff ? "DIFF" : "OUTCOME";
+      }
+      return [{
+        matchNumber: m.matchNumber,
+        group: m.groupId,
+        home: label(m.homeTeamId),
+        away: label(m.awayTeamId),
+        result: `${m.homeScore}–${m.awayScore}`,
+        pred: predText(m.matchNumber),
+        points,
+        outcome,
+      }];
+    });
+  const playedTipped = timeline.length;
 
   const b = (target.score?.breakdown as Record<string, number> | undefined) ?? {};
   const exactCount = b.exactCount ?? 0;
   const correctOutcomeCount = b.correctOutcomeCount ?? 0;
   const accuracyPct = playedTipped ? Math.round((correctOutcomeCount / playedTipped) * 100) : null;
+
+  // Ligajämförelse från cachelagrade Score-rader (en query, redan hämtad).
+  const totals = leagueScores.map((s) => s.total);
+  const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, x) => a + x, 0) / xs.length) * 10) / 10 : null);
+  const breakdownField = (key: string) =>
+    leagueScores.map((s) => ((s.breakdown as Record<string, number> | null)?.[key] ?? 0));
+  const league = {
+    players: leagueScores.length,
+    avgTotal: avg(totals),
+    bestTotal: totals.length ? Math.max(...totals) : null,
+    avgExact: avg(breakdownField("exactCount")),
+    avgGroupPoints: avg(breakdownField("groupMatches")),
+  };
 
   // Gruppdetaljer (rankning + matchtips).
   const groupPredByLetter = new Map(groupPreds.map((g) => [g.groupId, g]));
@@ -208,6 +261,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       championSharePct,
       favoriteTeam: fav ? { team: label(fav.teamId), count: fav.count } : null,
     },
+    rank: {
+      current: target.score?.currentRank ?? null,
+      previous: target.score?.previousRank ?? null,
+      leagueSize: league.players,
+    },
+    league,
+    timeline,
     champion: label(champId),
     finalists: finalists.map(label),
     semifinalists: semifinalists.map(label),

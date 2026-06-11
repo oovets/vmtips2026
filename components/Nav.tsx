@@ -132,6 +132,18 @@ function IconGroups() {
   );
 }
 
+function IconStats() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      {/* Stapeldiagram */}
+      <line x1="3" y1="17" x2="17" y2="17" />
+      <rect x="4.5" y="10" width="3" height="7" rx="0.8" />
+      <rect x="8.5" y="6" width="3" height="11" rx="0.8" />
+      <rect x="12.5" y="12.5" width="3" height="4.5" rx="0.8" />
+    </svg>
+  );
+}
+
 function IconSettings() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -248,6 +260,7 @@ const baseLinks = [
   { href: "/leaderboard",   label: "Topplista", icon: <IconLeaderboard />,  auth: false },
   { href: "/matcher",       label: "Matcher",   icon: <IconMatches />,      auth: false },
   { href: "/grupper",       label: "Grupper",   icon: <IconGroups />,       auth: false },
+  { href: "/vm-statistik",  label: "VM-statistik", icon: <IconStats />,     auth: false },
 ];
 
 // Mobil bottenmeny: exakt 5 fasta flikar oavsett auth/admin. Den sista ("Mer")
@@ -263,6 +276,7 @@ const bottomTabs = [
 const drawerLinks = [
   { href: "/leaderboard",   label: "Topplista",     icon: <IconLeaderboard />, auth: false },
   { href: "/sverige",       label: "Sverige",       icon: <IconSweden />,   auth: false },
+  { href: "/vm-statistik",  label: "VM-statistik",  icon: <IconStats />,    auth: false },
   { href: "/installningar", label: "Inställningar", icon: <IconSettings />, auth: true  },
 ];
 

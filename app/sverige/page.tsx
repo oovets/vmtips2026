@@ -283,7 +283,10 @@ export default async function SverigePage() {
 
   return (
     <div className="space-y-6">
-      <AutoRefresh seconds={60} />
+      {/* Tätare server-refresh medan Sverige spelar; lugnare annars. */}
+      <AutoRefresh
+        seconds={liveMatch || swedishMatches.some((m) => m.status === "LIVE") ? 30 : 60}
+      />
 
       {/* ── Live-hero (dominerar när Sverige spelar) ── */}
       {liveMatch && liveEspn && (

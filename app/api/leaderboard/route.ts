@@ -15,21 +15,26 @@ export async function GET() {
       orderBy: { createdAt: "asc" },
       select: { id: true, name: true },
     });
-    if (!defaultLeague) return NextResponse.json({ leagueName: null, rows: [] });
+    if (!defaultLeague) return NextResponse.json({ leagueName: null, rows: [], liveCount: 0 });
     leagueId = defaultLeague.id;
     leagueName = defaultLeague.name;
   }
 
-  const users = await prisma.user.findMany({
-    where: { leagueId },
-    include: {
-      score: true,
-      bracketPredictions: {
-        where: { matchNumber: { in: [101, 102, 104] } },
-        select: { matchNumber: true, winnerTeamId: true },
+  // liveCount låter klienten polla tätare medan matcher pågår (poängen räknas
+  // om när en match avslutas, så tätare polling fångar slutsignalen snabbare).
+  const [users, liveCount] = await Promise.all([
+    prisma.user.findMany({
+      where: { leagueId },
+      include: {
+        score: true,
+        bracketPredictions: {
+          where: { matchNumber: { in: [101, 102, 104] } },
+          select: { matchNumber: true, winnerTeamId: true },
+        },
       },
-    },
-  });
+    }),
+    prisma.match.count({ where: { status: "LIVE" } }),
+  ]);
 
   // Slå upp lagnamn för spelarnas tippade finalister/mästare.
   const teamIds = users
@@ -74,5 +79,5 @@ export async function GET() {
     return { ...r, rank };
   });
 
-  return NextResponse.json({ leagueName, rows: ranked });
+  return NextResponse.json({ leagueName, rows: ranked, liveCount });
 }

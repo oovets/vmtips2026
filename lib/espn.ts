@@ -27,7 +27,9 @@ export interface EspnMatch {
   odds: EspnOdds | null;
 }
 
-const REVALIDATE_SECONDS = 60;
+// Kort cache så live-klocka/ställning inte släpar efter sidans auto-uppdatering
+// (30 s server-refresh under live-matcher).
+const REVALIDATE_SECONDS = 30;
 
 // Amerikanska moneyline-odds -> implicit sannolikhet (0..1).
 function moneylineToProb(odds: number | null | undefined): number | null {

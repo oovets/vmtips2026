@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { scoreGroupMatch } from "@/lib/scoring";
 import { PageHeading } from "@/components/PageHeading";
 import { CountryGroupFilters } from "@/components/CountryGroupFilters";
+import { AutoRefresh } from "@/components/AutoRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -141,6 +142,8 @@ export default async function MatcherPage({
   ]);
 
   const predByNum = new Map(preds.map((p) => [p.match.matchNumber, p]));
+  // Auto-uppdatera sidan bara medan matcher pågår (ställning/detaljer ändras då).
+  const hasLive = matches.some((m) => m.status === "LIVE");
   const filteredMatches = matches.filter((m) => {
     const queryMatch =
       !q ||
@@ -163,6 +166,7 @@ export default async function MatcherPage({
 
   return (
     <div>
+      {hasLive && <AutoRefresh seconds={30} />}
       <PageHeading
         title="Matcher"
       >
@@ -273,6 +277,15 @@ export default async function MatcherPage({
 
                     {/* Label + tip */}
                     <div className="flex flex-col items-end gap-0.5">
+                      {live && (
+                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-px text-[9px] font-extrabold tracking-wider text-red-300">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                          </span>
+                          LIVE
+                        </span>
+                      )}
                       <span className="text-[10px] font-bold text-slate-700">{label}</span>
                       {tipText && (
                         <span className={`text-[10px] tabular-nums ${pts != null && pts > 0 ? "text-pitch-300 font-semibold" : "text-slate-500"}`}>
@@ -283,16 +296,18 @@ export default async function MatcherPage({
                   </>
                 );
 
+                const liveBg = live ? "bg-red-500/[0.06]" : "";
+
                 if (!hasDetails) {
                   return (
-                    <div key={m.id} className={`${gridCls} border-b border-white/[0.06] last:border-0`}>
+                    <div key={m.id} className={`${gridCls} border-b border-white/[0.06] last:border-0 ${liveBg}`}>
                       {row}
                     </div>
                   );
                 }
 
                 return (
-                  <details key={m.id} className="group border-b border-white/[0.06] last:border-0">
+                  <details key={m.id} className={`group border-b border-white/[0.06] last:border-0 ${liveBg}`}>
                     <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                       <div className={gridCls}>{row}</div>
                       <MatchEventsPreview det={det!} />
