@@ -35,7 +35,8 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        heading: ["var(--font-heading)", "var(--font-sans)", "system-ui", "sans-serif"],
+        // Header-titlar använder samma Inter Tight som bastexten; kontrast via vikt.
+        heading: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       keyframes: {
         "fade-in": {

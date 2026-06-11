@@ -45,37 +45,51 @@ function cellClass(c: HeatCell): string {
   return c.margin >= 3 ? "bg-red-500/90" : c.margin === 2 ? "bg-red-500/75" : "bg-red-500/55"; // L
 }
 
-// Själva rutnätet (kolumnrubriker + en rad per lag). Återanvänds både för
-// mobilens enkolumnsvy och desktopens tvåkolumnsuppdelning.
+// Själva rutnätet (kolumnrubriker + en rad per lag). Byggt som CSS-grid:
+//   [lag] [8 flexibla cellkolumner] [poäng]
+// Cellkolumnerna är minmax(0,1fr) så de krymper för att fylla exakt den
+// tillgängliga bredden — aldrig sidledsscroll på mobil. Cellerna hålls
+// kvadratiska via aspect-square och får en maxbredd på desktop.
 function HeatGrid({ teams }: { teams: HeatTeam[] }) {
+  // Lag- och poängkolumn har fast bredd; de 8 omgångskolumnerna delar resten
+  // lika (1fr) så de alltid ligger i raka, lodräta spalter oavsett skärmbredd.
+  const gridStyle = {
+    gridTemplateColumns: `3.25rem repeat(${HEATMAP_COLUMNS.length}, minmax(0,1fr)) 1.5rem`,
+  } as const;
+
   return (
     <div>
       {/* Kolumnrubriker */}
-      <div className="mb-1 flex items-center gap-1 pl-[104px] text-[10px] uppercase tracking-wide text-slate-500">
+      <div
+        className="mb-1 grid items-center gap-1 text-[10px] uppercase tracking-wide text-slate-500"
+        style={gridStyle}
+      >
+        <div aria-hidden />
         {HEATMAP_COLUMNS.map((col) => (
-          <div key={col.key} className="w-6 text-center" title={col.title}>
+          <div key={col.key} className="text-center" title={col.title}>
             {col.short}
           </div>
         ))}
-        <div className="ml-2 w-8 text-right">P</div>
+        <div className="text-right">P</div>
       </div>
 
       {/* Rader: ett lag per rad */}
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {teams.map((t) => (
-          <div key={t.id} className="flex items-center gap-1">
-            <div className="flex w-[100px] shrink-0 items-center gap-1.5 truncate text-xs">
-              <span>{t.flag}</span>
-              <span className="font-semibold text-slate-200">{t.code}</span>
+          <div key={t.id} className="grid items-center gap-1" style={gridStyle}>
+            <div className="flex min-w-0 items-center gap-1 text-xs">
+              <span className="shrink-0">{t.flag}</span>
+              <span className="truncate font-semibold text-slate-200">{t.code}</span>
             </div>
             {t.cells.map((c, i) => (
-              <div
-                key={i}
-                title={c.title}
-                className={`h-6 w-6 shrink-0 rounded-[3px] ${cellClass(c)}`}
-              />
+              <div key={i} className="flex justify-center">
+                <div
+                  title={c.title}
+                  className={`aspect-square w-full max-w-[24px] rounded-[3px] ${cellClass(c)}`}
+                />
+              </div>
             ))}
-            <div className="ml-2 w-8 text-right text-xs font-bold tabular-nums text-slate-300">
+            <div className="text-right text-xs font-bold tabular-nums text-slate-300">
               {t.played > 0 ? t.points : "–"}
             </div>
           </div>
@@ -97,12 +111,10 @@ export function ResultsHeatmap({ teams }: { teams: HeatTeam[] }) {
   const rightTeams = teams.slice(mid);
 
   return (
-    <div className="card p-4">
-      {/* Mobil/surfplatta: en kolumn med horisontell scroll vid behov */}
-      <div className="overflow-x-auto lg:hidden">
-        <div className="min-w-[560px]">
-          <HeatGrid teams={teams} />
-        </div>
+    <div className="card p-3 sm:p-4">
+      {/* Mobil/surfplatta: en kolumn som fyller hela bredden (ingen sidledsscroll) */}
+      <div className="lg:hidden">
+        <HeatGrid teams={teams} />
       </div>
 
       {/* Desktop: två kolumner sida vid sida så hela bredden utnyttjas */}

@@ -6,7 +6,8 @@ import { computeTournamentMetrics } from "@/lib/tournament-metrics";
 import { fetchFootballNews, SWEDISH_SOURCES } from "@/lib/news";
 import { fetchSocialPosts, JOURNALISTS, avatarUrl, profileUrl } from "@/lib/social";
 import { broadcasterFor, broadcasterLogo } from "@/lib/broadcast";
-import { marketOdds, marketPct } from "@/lib/odds";
+import { marketOdds } from "@/lib/odds";
+import { fetchDayWeather } from "@/lib/weather";
 import { Countdown } from "@/components/Countdown";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { NewsFeed } from "@/components/NewsFeed";
@@ -21,13 +22,12 @@ import {
   dramaStats,
   topScorersByTournament,
 } from "@/lib/tournament-history";
-import { fetchEspnMatches, lookupEspn } from "@/lib/espn";
+import { fetchEspnMatches, lookupEspn, type EspnMatch } from "@/lib/espn";
 import { CountUp } from "@/components/CountUp";
 import { SinceLastVisit } from "@/components/SinceLastVisit";
 import { SectionHeading } from "@/components/SectionHeading";
 import { PageHeading } from "@/components/PageHeading";
-import { OddsBar } from "@/components/OddsBar";
-import { PlayerSearch } from "@/components/PlayerSearch";
+import { PlayerSearchCard } from "@/components/PlayerSearchCard";
 import { Klotterplank } from "@/components/Klotterplank";
 import { rankRows } from "@/lib/rank";
 
@@ -42,6 +42,110 @@ function dateKey(d: Date): string {
 }
 function timeStr(d: Date): string {
   return d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Stockholm" });
+}
+
+// Speglar MatchDetails i lib/football-api.ts (samma form som lib/player-stats-tournament.ts).
+interface StoredGoal {
+  side: "HOME" | "AWAY";
+  player: string;
+  minute: number | null;
+  type: string | null; // REGULAR | OWN | PENALTY ...
+  assist: string | null;
+}
+interface StoredCard {
+  side: "HOME" | "AWAY";
+  player: string;
+  minute: number | null;
+  card: "YELLOW" | "RED" | "YELLOW_RED";
+}
+interface StoredDetails {
+  goals?: StoredGoal[];
+  cards?: StoredCard[];
+  shootout?: { home: number; away: number } | null;
+}
+
+type LiveEventKind = "GOAL" | "PENALTY" | "OWN" | "YELLOW" | "RED" | "YELLOW_RED";
+
+interface LiveEvent {
+  kind: LiveEventKind;
+  minute: number | null;
+  player: string;
+  assist: string | null;
+  teamTag: string; // "flagga KOD" för laget händelsen tillhör
+}
+
+// Plattar ut Match.details till en minut-sorterad händelselista för live-rutan.
+// Tål null/ofullständig data — saknade fält utelämnas helt enkelt.
+function parseLiveEvents(details: unknown, homeTag: string, awayTag: string): LiveEvent[] {
+  const d = (details ?? null) as StoredDetails | null;
+  if (!d) return [];
+  const events: LiveEvent[] = [];
+
+  for (const g of d.goals ?? []) {
+    const player = (g.player ?? "").trim();
+    if (!player || player === "?") continue;
+    const isOwn = g.type === "OWN";
+    // Vid självmål är `side` laget målet räknas FÖR — spelaren tillhör motståndaren.
+    const scorerSide: "HOME" | "AWAY" = isOwn ? (g.side === "HOME" ? "AWAY" : "HOME") : g.side;
+    events.push({
+      kind: isOwn ? "OWN" : g.type === "PENALTY" ? "PENALTY" : "GOAL",
+      minute: g.minute,
+      player,
+      assist: !isOwn ? ((g.assist ?? "").trim() || null) : null,
+      teamTag: scorerSide === "HOME" ? homeTag : awayTag,
+    });
+  }
+
+  for (const c of d.cards ?? []) {
+    const player = (c.player ?? "").trim();
+    if (!player || player === "?") continue;
+    events.push({
+      kind: c.card,
+      minute: c.minute,
+      player,
+      assist: null,
+      teamTag: c.side === "HOME" ? homeTag : awayTag,
+    });
+  }
+
+  return events.sort((a, b) => (a.minute ?? 999) - (b.minute ?? 999));
+}
+
+function liveEventBadge(kind: LiveEventKind): { label: string; className: string } {
+  switch (kind) {
+    case "GOAL":
+      return { label: "Mål", className: "bg-pitch-500/20 text-pitch-200" };
+    case "PENALTY":
+      return { label: "Straffmål", className: "bg-pitch-500/20 text-pitch-200" };
+    case "OWN":
+      return { label: "Självmål", className: "bg-white/10 text-slate-300" };
+    case "YELLOW":
+      return { label: "Gult kort", className: "bg-yellow-500/20 text-yellow-200" };
+    case "RED":
+      return { label: "Rött kort", className: "bg-red-500/20 text-red-200" };
+    case "YELLOW_RED":
+      return { label: "Gult+rött", className: "bg-red-500/20 text-red-200" };
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
+}
+
+function matchStatusLabel(m: { status: string }, live: EspnMatch | null, scoreText: string | null) {
+  if (scoreText) {
+    return { text: scoreText, className: "bg-white/10 text-slate-100" };
+  }
+  if (live?.state === "in") {
+    return { text: live.clock ?? "Live", className: "bg-red-500/20 text-red-200" };
+  }
+  if (m.status === "LIVE") {
+    return { text: "Live", className: "bg-red-500/20 text-red-200" };
+  }
+  if (m.status === "FINISHED" || live?.state === "post") {
+    return { text: "Slut", className: "bg-white/10 text-slate-300" };
+  }
+  return { text: "Kommande", className: "bg-pitch-500/15 text-pitch-100" };
 }
 
 export default async function DashboardPage() {
@@ -120,8 +224,14 @@ export default async function DashboardPage() {
   const todays = matches.filter((m) => dateKey(m.kickoff) === todayKey);
   const focusMatches = (todays.length ? todays : upcoming.slice(0, 5)).slice(0, 6);
 
-  // ── ESPN live-data + riktiga odds för fokusmatcherna (tyst fallback) ──────────
-  const espn = await fetchEspnMatches(focusMatches.map((m) => m.kickoff));
+  // ── ESPN live-data + riktiga odds för fokus- och livematcherna (tyst fallback) ─
+  const espn = await fetchEspnMatches([...focusMatches, ...live].map((m) => m.kickoff));
+
+  // ── Dagens väder för spelorterna (eller nästa matchdags). Samma källa som
+  //    nav-widgeten; tyst fallback (tom lista) om Open-Meteo är nere. ───────────
+  const dayWeather = await fetchDayWeather(
+    matches.map((m) => ({ kickoff: m.kickoff, venue: m.venue, status: m.status })),
+  );
 
   // ── Klotterplank: senaste meddelandena för en första målning utan flimmer ─────
   // Den slimmade raden roterar bara de senaste och visar samma i sitt popover,
@@ -184,17 +294,30 @@ export default async function DashboardPage() {
   };
 
   // ── Liga-konsensus för fokusmatcher (gruppmatcher) ───────────────────────────
-  const focusGroupNums = focusMatches.filter((m) => m.stage === "GROUP").map((m) => m.matchNumber);
-  const idByNumber = new Map(matches.map((m) => [m.matchNumber, m.id]));
-  const focusMatchIds = focusGroupNums.map((n) => idByNumber.get(n)!).filter(Boolean);
+  const focusMatchIds = focusMatches.map((m) => m.id);
+  const focusGroupMatchIds = focusMatches.filter((m) => m.stage === "GROUP").map((m) => m.id);
   const leagueUserIds = leagueUsers.map((u) => u.id);
   const consensusPreds =
-    focusMatchIds.length && leagueUserIds.length
+    focusGroupMatchIds.length && leagueUserIds.length
       ? await prisma.matchPrediction.findMany({
-          where: { matchId: { in: focusMatchIds }, userId: { in: leagueUserIds } },
+          where: { matchId: { in: focusGroupMatchIds }, userId: { in: leagueUserIds } },
           include: { match: { select: { matchNumber: true } } },
         })
       : [];
+  const myFocusPreds =
+    user && focusMatchIds.length
+      ? await prisma.matchPrediction.findMany({
+          where: { userId: user.id, matchId: { in: focusMatchIds } },
+          select: { matchId: true, predHome: true, predAway: true, predOutcome: true },
+        })
+      : [];
+  const myPredByMatch = new Map(myFocusPreds.map((p) => [p.matchId, p]));
+  const myPredText = (matchId: string): string => {
+    const p = myPredByMatch.get(matchId);
+    if (!p) return "–";
+    if (tippingMode === "X12") return p.predOutcome ?? "–";
+    return p.predHome != null && p.predAway != null ? `${p.predHome}–${p.predAway}` : "–";
+  };
 
   // matchNumber -> { "1"|"X"|"2": antal }
   const tally = new Map<number, { "1": number; X: number; "2": number; total: number }>();
@@ -342,7 +465,7 @@ export default async function DashboardPage() {
       <PageHeading
         title="Översikt"
       >
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
       <Klotterplank initialEntries={guestbookInitial} loggedIn={!!user} />
 
       <SinceLastVisit rank={me?.rank ?? null} points={me?.total ?? 0} resultTimes={resultTimes} />
@@ -381,17 +504,40 @@ export default async function DashboardPage() {
         </SectionHeading>
       </section>
 
+      {/* ── Dagens väder på spelorterna ── */}
+      {dayWeather.items.length > 0 && (
+        <section className="animate-fade-in [animation-delay:60ms] [animation-fill-mode:both]">
+          <SectionHeading
+            title={dayWeather.isToday ? "Väder på dagens spelorter" : "Väder på nästa matchdags spelorter"}
+          >
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {dayWeather.items.map((w) => (
+                <div key={w.venue} className="card flex items-center gap-3 p-3">
+                  <span className="text-2xl leading-none" aria-hidden>{w.emoji}</span>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-200" title={w.venue}>{w.city}</div>
+                    <div className="truncate text-[11px] text-slate-400">{w.label}</div>
+                    <div className="mt-0.5 text-xs tabular-nums text-slate-300">
+                      {w.tempC != null ? `${w.tempC}°` : "–"}
+                      {(w.high != null || w.low != null) && (
+                        <span className="ml-1 text-slate-500">
+                          {w.high != null ? `${w.high}°` : "–"} / {w.low != null ? `${w.low}°` : "–"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionHeading>
+        </section>
+      )}
+
       {/* ── Sök spelare ── */}
-      <section className="animate-fade-in [animation-delay:120ms] [animation-fill-mode:both]">
-        <SectionHeading title="Sök spelare">
-          <div className="card p-4">
-            <PlayerSearch />
-          </div>
-        </SectionHeading>
-      </section>
+      <PlayerSearchCard />
 
       {/* ── Hero: status nu ── */}
-      <section className="animate-fade-in [animation-delay:80ms] [animation-fill-mode:both]">
+      <section className="order-3 animate-fade-in [animation-delay:80ms] [animation-fill-mode:both]">
         <div className={`card flex flex-col justify-between gap-3 p-5 ${live.length > 0 ? "animate-live-glow border-red-500/40" : ""}`}>
           {live.length > 0 ? (
             <>
@@ -402,21 +548,80 @@ export default async function DashboardPage() {
                 </span>
                 Live nu{live.length > 1 && <span className="text-slate-500">· {live.length} matcher</span>}
               </div>
-              <div className="space-y-2">
-                {live.map((m) => (
-                  <Link
-                    key={m.id}
-                    href="/matcher"
-                    className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2 hover:bg-white/10"
-                  >
-                    <span className="truncate text-sm font-medium">
-                      {teamTag(m.homeTeamId)} <span className="text-slate-500">vs</span> {teamTag(m.awayTeamId)}
-                    </span>
-                    <span className="shrink-0 rounded bg-red-500/20 px-2 py-0.5 text-sm font-bold tabular-nums text-red-200">
-                      {m.homeScore ?? 0}–{m.awayScore ?? 0}
-                    </span>
-                  </Link>
-                ))}
+              <div className="space-y-3">
+                {live.map((m) => {
+                  const liveEspn = m.homeTeam && m.awayTeam
+                    ? lookupEspn(espn, m.homeTeam.code, m.awayTeam.code)
+                    : null;
+                  const useLiveScore =
+                    liveEspn && liveEspn.state !== "pre" && liveEspn.homeScore != null && liveEspn.awayScore != null;
+                  const hs = useLiveScore ? liveEspn.homeScore : (m.homeScore ?? 0);
+                  const as = useLiveScore ? liveEspn.awayScore : (m.awayScore ?? 0);
+                  const clock = liveEspn?.state === "in" ? liveEspn.clock : null;
+                  const homeTag = teamTag(m.homeTeamId);
+                  const awayTag = teamTag(m.awayTeamId);
+                  const events = parseLiveEvents(m.details, homeTag, awayTag);
+                  const shootout = ((m.details ?? null) as StoredDetails | null)?.shootout ?? null;
+                  const roundLabel = `${STAGE_LABEL[m.stage] ?? m.stage}${m.groupId ? ` ${m.groupId}` : m.round ? ` · ${m.round}` : ""}`;
+                  return (
+                    <div key={m.id} className="overflow-hidden rounded-lg bg-white/5">
+                      <Link
+                        href="/matcher"
+                        className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/10"
+                      >
+                        <span className="min-w-0 truncate text-sm font-medium">
+                          {homeTag} <span className="text-slate-500">vs</span> {awayTag}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {clock && (
+                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-red-200">
+                              {clock}
+                            </span>
+                          )}
+                          <span className="rounded bg-red-500/20 px-2 py-0.5 text-sm font-bold tabular-nums text-red-200">
+                            {hs}–{as}
+                          </span>
+                        </span>
+                      </Link>
+                      <div className="truncate px-3 pb-2 text-[11px] text-slate-500">
+                        {roundLabel} · {m.venue}
+                      </div>
+                      {(events.length > 0 || shootout) && (
+                        <ul className="space-y-1 border-t border-white/10 px-3 py-2">
+                          {events.map((ev, i) => {
+                            const badge = liveEventBadge(ev.kind);
+                            return (
+                              <li key={i} className="flex items-baseline gap-2 text-xs text-slate-300">
+                                <span className="w-7 shrink-0 text-right tabular-nums text-slate-500">
+                                  {ev.minute != null ? `${ev.minute}'` : ""}
+                                </span>
+                                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+                                  {badge.label}
+                                </span>
+                                <span className="min-w-0 truncate">
+                                  <span className="font-semibold text-slate-100">{ev.player}</span>
+                                  {ev.assist && <span className="text-slate-500"> (assist: {ev.assist})</span>}
+                                </span>
+                                <span className="ml-auto shrink-0 text-slate-400">{ev.teamTag}</span>
+                              </li>
+                            );
+                          })}
+                          {shootout && (
+                            <li className="flex items-baseline gap-2 text-xs text-slate-300">
+                              <span className="w-7 shrink-0" />
+                              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                                Straffar
+                              </span>
+                              <span className="font-semibold tabular-nums text-slate-100">
+                                {shootout.home}–{shootout.away}
+                              </span>
+                            </li>
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
           ) : nextMatch ? (
@@ -443,7 +648,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Fokusmatcher + ligakonsensus ── */}
-      <section className="animate-fade-in [animation-delay:240ms] [animation-fill-mode:both]">
+      <section className="order-4 animate-fade-in [animation-delay:240ms] [animation-fill-mode:both]">
         <SectionHeading
           title={todays.length ? "Dagens matcher" : "Kommande matcher"}
           action={<Link href="/matcher" className="text-pitch-300 hover:underline">Alla matcher →</Link>}
@@ -451,148 +656,204 @@ export default async function DashboardPage() {
         {focusMatches.length === 0 ? (
           <p className="card p-4 text-sm text-slate-400">Inga matcher att visa.</p>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {focusMatches.map((m) => {
-              const t = tally.get(m.matchNumber);
-              const pct = (k: "1" | "X" | "2") => (t && t.total ? Math.round((t[k] / t.total) * 100) : 0);
-              const homeName = m.homeTeam ? teamTag(m.homeTeamId) : (m.homeSlot ?? "?");
-              const awayName = m.awayTeam ? teamTag(m.awayTeamId) : (m.awaySlot ?? "?");
-              const homeCode = m.homeTeam ? (teamMeta.get(m.homeTeamId!)?.code ?? "Hemma") : (m.homeSlot ?? "Hemma");
-              const awayCode = m.awayTeam ? (teamMeta.get(m.awayTeamId!)?.code ?? "Borta") : (m.awaySlot ?? "Borta");
-              const channel = broadcasterFor(m.channel);
-              const odds = m.homeTeam && m.awayTeam
-                ? marketOdds(teamMeta.get(m.homeTeamId!)?.fifaRank ?? 99, teamMeta.get(m.awayTeamId!)?.fifaRank ?? 99)
-                : null;
-              const mp = odds ? marketPct(odds) : null;
-              const live = m.homeTeam && m.awayTeam
-                ? lookupEspn(espn, teamMeta.get(m.homeTeamId!)?.code, teamMeta.get(m.awayTeamId!)?.code)
-                : null;
-              const espnOdds = live?.odds ?? null;
-              const showScore = live && live.state !== "pre" && live.homeScore != null && live.awayScore != null;
-              return (
-                <div key={m.id} className="card p-4">
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-2">
-                      {STAGE_LABEL[m.stage] ?? m.stage}{m.groupId ? ` ${m.groupId}` : ""}
-                      {live?.state === "in" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-200">
-                          <span className="relative flex h-1.5 w-1.5">
-                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-                            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+          <div className="card overflow-hidden">
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[1120px] text-sm">
+                <thead className="border-b border-white/10 text-[10px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">Datum / tid</th>
+                    <th className="px-3 py-3 text-left font-medium">Grupp / omgång</th>
+                    <th className="px-3 py-3 text-left font-medium">Hemma</th>
+                    <th className="px-3 py-3 text-left font-medium">Borta</th>
+                    <th className="px-3 py-3 text-left font-medium">Arena / stad</th>
+                    <th className="px-3 py-3 text-left font-medium">Kanal</th>
+                    {user && <th className="px-3 py-3 text-left font-medium">Ditt tips</th>}
+                    <th className="px-3 py-3 text-left font-medium">Odds</th>
+                    <th className="px-3 py-3 text-left font-medium">Ligan</th>
+                    <th className="px-4 py-3 text-right font-medium">Status / resultat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {focusMatches.map((m) => {
+                    const t = tally.get(m.matchNumber);
+                    const pct = (k: "1" | "X" | "2") => (t && t.total ? Math.round((t[k] / t.total) * 100) : 0);
+                    const homeName = m.homeTeam ? teamTag(m.homeTeamId) : (m.homeSlot ?? "?");
+                    const awayName = m.awayTeam ? teamTag(m.awayTeamId) : (m.awaySlot ?? "?");
+                    const channel = broadcasterFor(m.channel);
+                    const odds = m.homeTeam && m.awayTeam
+                      ? marketOdds(teamMeta.get(m.homeTeamId!)?.fifaRank ?? 99, teamMeta.get(m.awayTeamId!)?.fifaRank ?? 99)
+                      : null;
+                    const live = m.homeTeam && m.awayTeam
+                      ? lookupEspn(espn, teamMeta.get(m.homeTeamId!)?.code, teamMeta.get(m.awayTeamId!)?.code)
+                      : null;
+                    const espnOdds = live?.odds ?? null;
+                    const useLiveScore = live && live.state !== "pre" && live.homeScore != null && live.awayScore != null;
+                    const hs = useLiveScore ? live.homeScore : m.homeScore;
+                    const as = useLiveScore ? live.awayScore : m.awayScore;
+                    const showScore = (m.status === "FINISHED" || useLiveScore) && hs != null && as != null;
+                    const scoreText = showScore ? `${hs}–${as}` : null;
+                    const status = matchStatusLabel(m, live, scoreText);
+                    const roundLabel = `${STAGE_LABEL[m.stage] ?? m.stage}${m.groupId ? ` ${m.groupId}` : m.round ? ` · ${m.round}` : ""}`;
+                    const oddsText = espnOdds?.homeDec && espnOdds.drawDec && espnOdds.awayDec
+                      ? `${espnOdds.homeDec.toFixed(2)} / ${espnOdds.drawDec.toFixed(2)} / ${espnOdds.awayDec.toFixed(2)}`
+                      : odds
+                        ? `${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`
+                        : "–";
+                    const leagueText = t && t.total > 0 ? `1 ${pct("1")}% · X ${pct("X")}% · 2 ${pct("2")}%` : "–";
+
+                    return (
+                      <tr key={m.id} className="text-slate-300">
+                        <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-400">
+                          {dateKey(m.kickoff)} <span className="text-slate-500">{timeStr(m.kickoff)}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">{roundLabel}</td>
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-100">{homeName}</td>
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-100">{awayName}</td>
+                        <td className="max-w-[180px] truncate px-3 py-3 text-xs text-slate-400" title={m.venue}>
+                          {m.venue}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3">
+                          {channel ? (
+                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
+                              {channel.domain ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
+                              ) : (
+                                <span>{channel.icon}</span>
+                              )}
+                              {channel.short}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-600">–</span>
+                          )}
+                        </td>
+                        {user && (
+                          <td className="whitespace-nowrap px-3 py-3 text-xs font-semibold tabular-nums text-slate-200">
+                            {myPredText(m.id)}
+                          </td>
+                        )}
+                        <td className="whitespace-nowrap px-3 py-3 text-xs tabular-nums text-slate-400">
+                          <span title={espnOdds ? "Spelbolagen" : odds ? "Modellens odds" : undefined}>{oddsText}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs tabular-nums text-slate-400" title={t && t.total > 0 ? `${t.total} tips` : undefined}>
+                          {leagueText}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <span className={`inline-flex min-w-14 justify-center rounded px-2 py-0.5 text-xs font-extrabold tabular-nums ${status.className}`}>
+                            {status.text}
                           </span>
-                          {live.clock ?? "Live"}
-                        </span>
-                      )}
-                      {live?.state === "post" && (
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">Slut</span>
-                      )}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {channel && (
-                        <span
-                          className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`}
-                          title={`Sänds på ${channel.name}`}
-                        >
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="divide-y divide-white/5 md:hidden">
+              {focusMatches.map((m) => {
+                const t = tally.get(m.matchNumber);
+                const pct = (k: "1" | "X" | "2") => (t && t.total ? Math.round((t[k] / t.total) * 100) : 0);
+                const homeName = m.homeTeam ? teamTag(m.homeTeamId) : (m.homeSlot ?? "?");
+                const awayName = m.awayTeam ? teamTag(m.awayTeamId) : (m.awaySlot ?? "?");
+                const channel = broadcasterFor(m.channel);
+                const odds = m.homeTeam && m.awayTeam
+                  ? marketOdds(teamMeta.get(m.homeTeamId!)?.fifaRank ?? 99, teamMeta.get(m.awayTeamId!)?.fifaRank ?? 99)
+                  : null;
+                const live = m.homeTeam && m.awayTeam
+                  ? lookupEspn(espn, teamMeta.get(m.homeTeamId!)?.code, teamMeta.get(m.awayTeamId!)?.code)
+                  : null;
+                const espnOdds = live?.odds ?? null;
+                const useLiveScore = live && live.state !== "pre" && live.homeScore != null && live.awayScore != null;
+                const hs = useLiveScore ? live.homeScore : m.homeScore;
+                const as = useLiveScore ? live.awayScore : m.awayScore;
+                const showScore = (m.status === "FINISHED" || useLiveScore) && hs != null && as != null;
+                const scoreText = showScore ? `${hs}–${as}` : null;
+                const status = matchStatusLabel(m, live, scoreText);
+                const roundLabel = `${STAGE_LABEL[m.stage] ?? m.stage}${m.groupId ? ` ${m.groupId}` : m.round ? ` · ${m.round}` : ""}`;
+                const oddsText = espnOdds?.homeDec && espnOdds.drawDec && espnOdds.awayDec
+                  ? `${espnOdds.homeDec.toFixed(2)} / ${espnOdds.drawDec.toFixed(2)} / ${espnOdds.awayDec.toFixed(2)}`
+                  : odds
+                    ? `${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`
+                    : "–";
+
+                return (
+                  <div key={m.id} className="p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{roundLabel}</div>
+                        <div className="mt-0.5 text-xs tabular-nums text-slate-400">
+                          {dateKey(m.kickoff)} {timeStr(m.kickoff)}
+                        </div>
+                      </div>
+                      <span className={`inline-flex shrink-0 justify-center rounded px-2 py-0.5 text-xs font-extrabold tabular-nums ${status.className}`}>
+                        {status.text}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                      <span className="min-w-0 truncate">{homeName}</span>
+                      <span className="shrink-0 text-slate-500">vs</span>
+                      <span className="min-w-0 truncate text-right">{awayName}</span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                      <span className="truncate">{m.venue}</span>
+                      {channel ? (
+                        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
                           {channel.domain ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={broadcasterLogo(channel.domain)}
-                              alt=""
-                              width={14}
-                              height={14}
-                              loading="lazy"
-                              className="h-3.5 w-3.5 rounded-[2px]"
-                            />
+                            <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
                           ) : (
                             <span>{channel.icon}</span>
                           )}
                           {channel.short}
                         </span>
+                      ) : (
+                        <span>–</span>
                       )}
-                      <span>{dateKey(m.kickoff)} {timeStr(m.kickoff)}</span>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2 border-t border-white/10 pt-2 text-[11px] text-slate-400">
+                      {user && (
+                        <div>
+                          Ditt tips: <span className="font-semibold tabular-nums text-slate-200">{myPredText(m.id)}</span>
+                        </div>
+                      )}
+                      <div>
+                        Odds: <span className="tabular-nums text-slate-300">{oddsText}</span>
+                      </div>
+                      <div className={user ? "col-span-2" : "col-span-1"}>
+                        Ligan:{" "}
+                        {t && t.total > 0 ? (
+                          <span className="tabular-nums text-slate-300">
+                            1 {pct("1")}% · X {pct("X")}% · 2 {pct("2")}% ({t.total} tips)
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">–</span>
+                        )}
+                      </div>
+                      {live?.overUnder != null && (
+                        <div className="col-span-2">
+                          Målbild: <span className="tabular-nums text-flag-300">O/U {live.overUnder}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                    <span className="min-w-0 truncate">{homeName}</span>
-                    {showScore ? (
-                      <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-base font-extrabold tabular-nums">
-                        {live!.homeScore}–{live!.awayScore}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-slate-500">vs</span>
-                    )}
-                    <span className="min-w-0 truncate text-right">{awayName}</span>
-                  </div>
-                  <div className="mt-3 space-y-3">
-                    {live?.overUnder != null && (
-                      <div className="flex items-center justify-end gap-2">
-                        <span
-                          className="shrink-0 rounded bg-flag-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-flag-300"
-                          title={`Spelbolagens gräns: ${live.overUnder} mål`}
-                        >
-                          {live.overUnder >= 2.75 ? "Målfest väntas" : live.overUnder <= 2.25 ? "Få mål väntas" : "Jämn målbild"} · O/U {live.overUnder}
-                        </span>
-                      </div>
-                    )}
-                    {espnOdds && (
-                      <OddsBar
-                        title="Spelbolagen"
-                        hint={
-                          espnOdds.homeDec && espnOdds.drawDec && espnOdds.awayDec
-                            ? `spelodds ${espnOdds.homeDec.toFixed(2)} / ${espnOdds.drawDec.toFixed(2)} / ${espnOdds.awayDec.toFixed(2)}`
-                            : "live från spelbolag"
-                        }
-                        homeCode={homeCode}
-                        awayCode={awayCode}
-                        home={espnOdds.homePct}
-                        draw={espnOdds.drawPct}
-                        away={espnOdds.awayPct}
-                        dim
-                      />
-                    )}
-                    {!espnOdds && mp && odds && (
-                      <OddsBar
-                        title="Modellens odds"
-                        hint={`uppskattat ${odds.oddsHome.toFixed(2)} / ${odds.oddsDraw.toFixed(2)} / ${odds.oddsAway.toFixed(2)}`}
-                        homeCode={homeCode}
-                        awayCode={awayCode}
-                        home={mp["1"]}
-                        draw={mp.X}
-                        away={mp["2"]}
-                        dim
-                      />
-                    )}
-                    {t && t.total > 0 ? (
-                      <OddsBar
-                        title="Så tippar ni i ligan"
-                        hint={`${t.total} tips`}
-                        homeCode={homeCode}
-                        awayCode={awayCode}
-                        home={pct("1")}
-                        draw={pct("X")}
-                        away={pct("2")}
-                      />
-                    ) : (
-                      <p className="text-[11px] text-slate-600">Ligans tips visas för gruppmatcher så fort någon tippat.</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
         </SectionHeading>
       </section>
 
-      {/* ── Resultatkarta (heatmap) ── */}
-      <section className="animate-fade-in [animation-delay:320ms] [animation-fill-mode:both]">
+      {/* ── Resultatkarta (heatmap) — placerad under alla grafer ── */}
+      <section className="order-7 animate-fade-in [animation-delay:320ms] [animation-fill-mode:both]">
         <SectionHeading title="Resultatkarta">
           <ResultsHeatmap teams={heatTeams} />
         </SectionHeading>
       </section>
 
       {/* ── Målminuter (heatmap) ── */}
-      <section className="animate-fade-in [animation-delay:360ms] [animation-fill-mode:both]">
+      <section className="order-2 animate-fade-in [animation-delay:360ms] [animation-fill-mode:both]">
         <SectionHeading title="När faller målen?">
           <GoalMinuteHeatmap
             summary={goalMinutes}
@@ -602,7 +863,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Historiska mästerskap (Wikipedia-data) ── */}
-      <section className="animate-fade-in [animation-delay:380ms] [animation-fill-mode:both]">
+      <section className="order-5 animate-fade-in [animation-delay:380ms] [animation-fill-mode:both]">
         <SectionHeading title="Så har VM sett ut">
           <div className="space-y-3">
             <div>
@@ -643,7 +904,7 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Trender & snackisar ── */}
-      <section className="animate-fade-in [animation-delay:400ms] [animation-fill-mode:both]">
+      <section className="order-6 animate-fade-in [animation-delay:400ms] [animation-fill-mode:both]">
         <SectionHeading title="Trender & snackisar">
         <div className="grid gap-3 lg:grid-cols-3">
           {/* Ligans mästartips */}
@@ -751,12 +1012,12 @@ export default async function DashboardPage() {
       </section>
 
       {/* ── Fotbollsnyheter ── */}
-      <div className="animate-fade-in [animation-delay:440ms] [animation-fill-mode:both]">
+      <div className="order-8 animate-fade-in [animation-delay:440ms] [animation-fill-mode:both]">
         <NewsFeed items={news} swedishSources={SWEDISH_SOURCES} />
       </div>
 
       {/* ── Snack på X ── */}
-      <section className="animate-fade-in [animation-delay:480ms] [animation-fill-mode:both]">
+      <section className="order-9 animate-fade-in [animation-delay:480ms] [animation-fill-mode:both]">
         <SectionHeading title="Snack på X">
         {socialPosts.length > 0 ? (
           <div className="card divide-y divide-white/5">

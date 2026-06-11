@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import type { WeatherInfo } from "@/lib/weather";
 
 // Kompakt väder-widget i nav-baren. Visar dagens "ledande" väder (första arenan)
@@ -8,6 +9,8 @@ import type { WeatherInfo } from "@/lib/weather";
 // spelplatser. Renderar inget om det saknas väderdata.
 export function WeatherWidget({ items, isToday }: { items: WeatherInfo[]; isToday: boolean }) {
   const [open, setOpen] = useState(false);
+  useEscapeToClose(open, () => setOpen(false));
+
   if (items.length === 0) return null;
 
   const lead = items[0];

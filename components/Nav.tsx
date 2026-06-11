@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { WeatherWidget } from "@/components/WeatherWidget";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 import type { WeatherInfo } from "@/lib/weather";
 
 interface LeagueEntry { userId: string; leagueName: string; }
@@ -247,7 +248,6 @@ const baseLinks = [
   { href: "/leaderboard",   label: "Topplista", icon: <IconLeaderboard />,  auth: false },
   { href: "/matcher",       label: "Matcher",   icon: <IconMatches />,      auth: false },
   { href: "/grupper",       label: "Grupper",   icon: <IconGroups />,       auth: false },
-  { href: "/installningar", label: "Inst.",     icon: <IconSettings />,     auth: true  },
 ];
 
 // Mobil bottenmeny: exakt 5 fasta flikar oavsett auth/admin. Den sista ("Mer")
@@ -296,17 +296,15 @@ export function Nav({ user, isAdminLoggedIn, allLeagues, weather, needsSubmit }:
     setShowMore(false);
   }, [pathname]);
 
-  // Esc stänger öppna ytor; lås body-scroll medan sheeten är öppen.
+  useEscapeToClose(showLeagues, () => setShowLeagues(false));
+  useEscapeToClose(showMore, () => setShowMore(false));
+
+  // Lås body-scroll medan sheeten är öppen.
   useEffect(() => {
     if (!showMore) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setShowMore(false);
-    }
-    document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
   }, [showMore]);
@@ -455,6 +453,15 @@ export function Nav({ user, isAdminLoggedIn, allLeagues, weather, needsSubmit }:
                         <span className="text-slate-400"><IconLink /></span>
                         {copied ? "länk kopierad!" : "Kopiera inbjudningslänk"}
                       </button>
+                      <Link
+                        href="/installningar"
+                        role="menuitem"
+                        onClick={() => setShowLeagues(false)}
+                        className="flex w-full items-center gap-2 border-t border-white/10 px-4 py-2.5 text-left text-sm text-slate-300 hover:bg-white/5"
+                      >
+                        <span className="text-slate-400"><IconSettings /></span>
+                        Inställningar
+                      </Link>
                       <Link
                         href="/ny-liga"
                         role="menuitem"

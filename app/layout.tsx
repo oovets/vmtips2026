@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata, Viewport } from "next";
-import { Inter_Tight, Plus_Jakarta_Sans } from "next/font/google";
+import { Inter_Tight } from "next/font/google";
 import "./globals.css";
 import { getCurrentUser, getAllSessionUserIds, isAdminAuthed } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -52,10 +52,15 @@ async function getRankAndTrend(
   return { rank: mine?.rank ?? null, trend: null };
 }
 
-const inter = Inter_Tight({ subsets: ["latin"], variable: "--font-heading", display: "swap" });
-// Plus Jakarta Sans: modern, hög läsbarhet på täta mörka gränssnitt, utmärkt stöd
-// för svenska diakritiska tecken (å ä ö). display: "swap" undviker layouthopp.
-const bodyFont = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
+// Inter Tight används unisont i hela gränssnittet (bas + header-titlar). Samma
+// CSS-variabel driver båda; header-titlar får kontrast via vikt. Bra svenskt
+// diakritiskt stöd (å ä ö) och hög läsbarhet på täta mörka ytor. display: "swap"
+// undviker layouthopp.
+const interTight = Inter_Tight({
+  subsets: ["latin"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "VM-tips 2026",
@@ -100,7 +105,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     : { rank: null, trend: null as Trend };
 
   return (
-    <html lang="sv" className={`${inter.variable} ${bodyFont.variable}`}>
+    <html lang="sv" className={interTight.variable}>
       <body className="min-h-screen font-sans">
         <Suspense fallback={null}>
           <SessionTracker />

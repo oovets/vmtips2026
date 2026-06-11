@@ -8,9 +8,10 @@ import type {
   TournamentScorers,
 } from "@/lib/tournament-history";
 
-// Färg per mästerskap (max ~4 serier). Index följer seriens ordning.
-const SERIES_COLORS = ["bg-pitch-500", "bg-flag-500", "bg-amber-500", "bg-violet-500"];
-const SERIES_DOT = ["bg-pitch-500", "bg-flag-500", "bg-amber-500", "bg-violet-500"];
+// Färg per mästerskap. Index följer seriens ordning (2022, 2018, 2014, 2010, 2006).
+// Femte färgen gör att VM 2006 inte återanvänder samma blå som VM 2022.
+const SERIES_COLORS = ["bg-pitch-500", "bg-flag-500", "bg-amber-500", "bg-violet-500", "bg-green-500"];
+const SERIES_DOT = ["bg-pitch-500", "bg-flag-500", "bg-amber-500", "bg-violet-500", "bg-green-500"];
 
 function Legend({ names }: { names: string[] }) {
   return (

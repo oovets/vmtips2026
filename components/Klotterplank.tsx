@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 
 export interface GuestbookEntry {
   id: string;
@@ -102,6 +103,8 @@ export function Klotterplank({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
+
+  useEscapeToClose(open, () => setOpen(false));
 
   const submit = async () => {
     const trimmed = message.trim();

@@ -9,6 +9,7 @@
 
 import { prisma } from "./prisma";
 import { Prisma } from "@prisma/client";
+import { squadPlayers } from "@/lib/sweden-squad";
 
 // Speglar MatchDetails i lib/football-api.ts (+ `final`-flaggan från sync-service).
 interface StoredGoal {
@@ -67,6 +68,7 @@ export interface PlayerEvent {
 export interface PlayerStats {
   name: string; // visningsnamn
   team: TeamTag | null; // härlett ur händelsernas sida (vanligast förekommande)
+  profile: PlayerProfile | null;
   goals: number; // alla mål spelaren GJORT (exkl. självmål)
   penaltyGoals: number;
   ownGoals: number; // självmål spelaren slagit in
@@ -80,8 +82,23 @@ export interface PlayerStats {
 export interface PlayerSearchHit {
   name: string;
   team: TeamTag | null;
+  source: "events" | "profile" | "both";
   goals: number;
   cards: number; // gula + röda, för en kompakt etikett i listan
+}
+
+export interface PlayerProfile {
+  source: "sweden-squad";
+  team: TeamTag;
+  position: string;
+  number: number | null;
+  age: number | null;
+  club: string;
+  clubNat: string;
+  caps: number;
+  nationalGoals: number;
+  captain: boolean;
+  viceCaptain: boolean;
 }
 
 interface MatchRow {
@@ -96,6 +113,29 @@ interface MatchRow {
 // Normalisera namn för gruppering (skiftlägesokänsligt + trimmat).
 function normKey(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+const SWEDEN_TAG: TeamTag = { code: "SWE", flag: "🇸🇪", name: "Sweden" };
+
+function profileMap(): Map<string, PlayerProfile & { name: string }> {
+  const map = new Map<string, PlayerProfile & { name: string }>();
+  for (const p of squadPlayers()) {
+    map.set(normKey(p.name), {
+      name: p.name,
+      source: "sweden-squad",
+      team: SWEDEN_TAG,
+      position: p.position,
+      number: p.number,
+      age: p.age,
+      club: p.club,
+      clubNat: p.clubNat,
+      caps: p.caps,
+      nationalGoals: p.goals,
+      captain: p.captain,
+      viceCaptain: p.viceCaptain,
+    });
+  }
+  return map;
 }
 
 interface Agg {
@@ -273,13 +313,14 @@ async function aggregate(): Promise<Map<string, Agg>> {
   return byPlayer;
 }
 
-function toStats(agg: Agg): PlayerStats {
+function toStats(agg: Agg, profile: PlayerProfile | null = null): PlayerStats {
   const events = agg.events
     .slice()
     .sort((a, b) => a.matchNumber - b.matchNumber || (a.minute ?? 999) - (b.minute ?? 999));
   return {
     name: bestDisplay(agg),
-    team: bestTeam(agg),
+    team: bestTeam(agg) ?? profile?.team ?? null,
+    profile,
     goals: agg.goals,
     penaltyGoals: agg.penaltyGoals,
     ownGoals: agg.ownGoals,
@@ -297,21 +338,42 @@ export async function searchPlayers(query: string, limit = 12): Promise<PlayerSe
   const q = query.trim().toLowerCase();
   if (!q) return [];
   const byPlayer = await aggregate();
+  const profiles = profileMap();
 
-  const hits: PlayerSearchHit[] = [];
+  const hitsByKey = new Map<string, PlayerSearchHit>();
   for (const agg of byPlayer.values()) {
     const display = bestDisplay(agg);
     if (!display.toLowerCase().includes(q)) continue;
-    hits.push({
+    const key = normKey(display);
+    hitsByKey.set(key, {
       name: display,
       team: bestTeam(agg),
+      source: profiles.has(key) ? "both" : "events",
       goals: agg.goals,
       cards: agg.yellowCards + agg.redCards,
     });
   }
 
+  for (const [key, profile] of profiles) {
+    if (!profile.name.toLowerCase().includes(q)) continue;
+    const existing = hitsByKey.get(key);
+    if (existing) {
+      hitsByKey.set(key, { ...existing, team: existing.team ?? profile.team, source: "both" });
+    } else {
+      hitsByKey.set(key, {
+        name: profile.name,
+        team: profile.team,
+        source: "profile",
+        goals: 0,
+        cards: 0,
+      });
+    }
+  }
+
+  const hits = [...hitsByKey.values()];
   hits.sort(
     (a, b) =>
+      (a.source === "profile" ? 1 : 0) - (b.source === "profile" ? 1 : 0) ||
       b.goals - a.goals ||
       b.cards - a.cards ||
       a.name.localeCompare(b.name, "sv"),
@@ -325,7 +387,23 @@ export async function playerTournamentStats(name: string): Promise<PlayerStats |
   const key = normKey(name);
   if (!key) return null;
   const byPlayer = await aggregate();
+  const profile = profileMap().get(key) ?? null;
   const agg = byPlayer.get(key);
-  if (!agg) return null;
-  return toStats(agg);
+  if (!agg) {
+    if (!profile) return null;
+    return {
+      name: profile.name,
+      team: profile.team,
+      profile,
+      goals: 0,
+      penaltyGoals: 0,
+      ownGoals: 0,
+      assists: 0,
+      yellowCards: 0,
+      redCards: 0,
+      matchesWithEvents: 0,
+      events: [],
+    };
+  }
+  return toStats(agg, profile);
 }

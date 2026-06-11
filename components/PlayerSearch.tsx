@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useEscapeToClose } from "@/hooks/useEscapeToClose";
 
 interface TeamTag {
   code: string;
@@ -10,6 +11,7 @@ interface TeamTag {
 interface SearchHit {
   name: string;
   team: TeamTag | null;
+  source: "events" | "profile" | "both";
   goals: number;
   cards: number;
 }
@@ -28,6 +30,7 @@ interface PlayerEvent {
 interface PlayerStats {
   name: string;
   team: TeamTag | null;
+  profile: PlayerProfile | null;
   goals: number;
   penaltyGoals: number;
   ownGoals: number;
@@ -36,6 +39,19 @@ interface PlayerStats {
   redCards: number;
   matchesWithEvents: number;
   events: PlayerEvent[];
+}
+interface PlayerProfile {
+  source: "sweden-squad";
+  team: TeamTag;
+  position: string;
+  number: number | null;
+  age: number | null;
+  club: string;
+  clubNat: string;
+  caps: number;
+  nationalGoals: number;
+  captain: boolean;
+  viceCaptain: boolean;
 }
 
 const tag = (t: TeamTag | null) => (t ? `${t.flag} ${t.code}` : "–");
@@ -50,13 +66,18 @@ const EVENT_META: Record<EventKind, { icon: string; label: string }> = {
   YELLOW_RED: { icon: "🟨🟥", label: "Gult + gult (rött)" },
 };
 
-export function PlayerSearch() {
+export function PlayerSearch({
+  onDropdownOpenChange,
+}: {
+  onDropdownOpenChange?: (open: boolean) => void;
+} = {}) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false); // dropdown öppen
   const [selected, setSelected] = useState<string | null>(null); // valt spelarnamn (öppnar modal)
   const boxRef = useRef<HTMLDivElement>(null);
+  useEscapeToClose(open, () => setOpen(false));
 
   // Debouncad live-sökning mot API:t.
   useEffect(() => {
@@ -102,6 +123,10 @@ export function PlayerSearch() {
   }, [open]);
 
   const showDropdown = open && query.trim().length > 0;
+
+  useEffect(() => {
+    onDropdownOpenChange?.(showDropdown);
+  }, [onDropdownOpenChange, showDropdown]);
 
   return (
     <div ref={boxRef} className="relative">
@@ -153,7 +178,11 @@ export function PlayerSearch() {
                   {h.goals > 0 && <span className="text-pitch-300">{h.goals} mål</span>}
                   {h.goals > 0 && h.cards > 0 && <span className="text-slate-600"> · </span>}
                   {h.cards > 0 && <span>{h.cards} kort</span>}
-                  {h.goals === 0 && h.cards === 0 && <span className="text-slate-600">inga händelser</span>}
+                  {h.goals === 0 && h.cards === 0 && (
+                    <span className={h.source === "profile" ? "text-flag-300" : "text-slate-600"}>
+                      {h.source === "profile" ? "trupprofil" : "inga händelser"}
+                    </span>
+                  )}
                 </span>
               </button>
             ))
@@ -194,14 +223,7 @@ function PlayerModal({ name, onClose }: { name: string; onClose: () => void }) {
     return () => ctrl.abort();
   }, [name]);
 
-  // Stäng på Esc.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useEscapeToClose(true, onClose);
 
   const hasAny =
     data &&
@@ -227,7 +249,7 @@ function PlayerModal({ name, onClose }: { name: string; onClose: () => void }) {
           <div className="min-w-0">
             <h2 className="truncate font-heading text-lg font-extrabold">{data?.name ?? name}</h2>
             <p className="text-xs text-slate-400">
-              {data?.team ? `${tag(data.team)} · ` : ""}Statistik hittills i turneringen
+              {data?.team ? `${tag(data.team)} · ` : ""}{data?.profile ? "Profil och VM-händelser" : "Statistik hittills i turneringen"}
             </p>
           </div>
           <button
@@ -249,6 +271,20 @@ function PlayerModal({ name, onClose }: { name: string; onClose: () => void }) {
           </p>
         ) : (
           <div className="space-y-4">
+            {data.profile && (
+              <div className="card grid grid-cols-2 gap-2 p-3 text-xs sm:grid-cols-4">
+                <ProfileStat label="Position" value={data.profile.position} />
+                <ProfileStat label="Nummer" value={data.profile.number != null ? `#${data.profile.number}` : "—"} />
+                <ProfileStat label="Ålder" value={data.profile.age != null ? `${data.profile.age} år` : "—"} />
+                <ProfileStat label="Klubb" value={`${data.profile.club} (${data.profile.clubNat})`} />
+                <ProfileStat label="Landskamper" value={`${data.profile.caps}`} />
+                <ProfileStat label="Landslagsmål" value={`${data.profile.nationalGoals}`} />
+                {(data.profile.captain || data.profile.viceCaptain) && (
+                  <ProfileStat label="Roll" value={data.profile.captain ? "Lagkapten" : "Vice kapten"} />
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
               <Stat label="Mål" value={data.goals} hint={data.penaltyGoals > 0 ? `varav ${data.penaltyGoals} straff` : undefined} />
               <Stat label="Assist" value={data.assists} />
@@ -265,7 +301,7 @@ function PlayerModal({ name, onClose }: { name: string; onClose: () => void }) {
 
             {!hasAny ? (
               <p className="rounded-xl border border-white/5 bg-white/[0.03] px-3 py-4 text-center text-sm text-slate-400">
-                Inga mål eller kort registrerade än.
+                Inga mål eller kort registrerade än i VM 2026.
               </p>
             ) : (
               <div>
@@ -304,8 +340,7 @@ function PlayerModal({ name, onClose }: { name: string; onClose: () => void }) {
             )}
 
             <p className="text-[10px] text-slate-600">
-              Statistiken bygger på inrapporterade matchhändelser (mål och kort) och fylls på allt eftersom
-              matcherna spelas.
+              VM-statistiken bygger på inrapporterade matchhändelser (mål och kort) och fylls på allt eftersom matcherna spelas.
             </p>
           </div>
         )}
@@ -320,6 +355,15 @@ function Stat({ label, value, hint }: { label: string; value: number; hint?: str
       <div className="text-lg font-extrabold tabular-nums">{value}</div>
       <div className="text-[10px] uppercase tracking-wide text-slate-400">{label}</div>
       {hint && <div className="text-[9px] text-slate-600">{hint}</div>}
+    </div>
+  );
+}
+
+function ProfileStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-lg bg-white/[0.03] p-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="truncate font-semibold text-slate-200" title={value}>{value}</div>
     </div>
   );
 }

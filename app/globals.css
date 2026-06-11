@@ -17,7 +17,7 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: var(--font-heading), var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   letter-spacing: -0.025em;
 }
 
@@ -57,20 +57,18 @@ body {
   opacity: 1;
 }
 
-/* Mörkt skikt ovanpå bilden: håller temat mörkt och stämningsfullt och
-   garanterar läsbarhet för förgrundsinnehåll. */
+/* Blåtonat mörkt skikt ovanpå bilden: håller fotona svartvita men ger hela sidan
+   en något ljusare, blåare graf-/VM-känsla. */
 .bg-rotator__overlay {
   position: fixed;
   inset: 0;
   z-index: -9;
   pointer-events: none;
-  /* Helt neutralt (rent svart) mörkt skikt – ingen färgton. Håller temat
-     mörkt och garanterar läsbarhet för förgrundsinnehåll. */
   background: linear-gradient(
     180deg,
-    rgba(0, 0, 0, 0.86) 0%,
-    rgba(0, 0, 0, 0.9) 55%,
-    rgba(0, 0, 0, 0.94) 100%
+    rgba(5, 18, 34, 0.74) 0%,
+    rgba(5, 20, 38, 0.8) 55%,
+    rgba(4, 14, 28, 0.86) 100%
   );
 }
 

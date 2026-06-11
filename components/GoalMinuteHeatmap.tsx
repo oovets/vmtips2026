@@ -24,64 +24,69 @@ export function GoalMinuteHeatmap({
   emptyHint?: string;
 }) {
   const { buckets, total, max, peak, matchesWithMinuteData } = summary;
+  const bucketGridStyle = { gridTemplateColumns: `repeat(${buckets.length}, minmax(0, 1fr))` };
 
   if (total === 0) {
-    return <p className="card p-4 text-sm text-slate-400">{emptyHint}</p>;
+    return <p className="card p-3 text-sm text-slate-400 sm:p-4">{emptyHint}</p>;
   }
 
   return (
-    <div className="card p-4">
+    <div className="card max-w-full overflow-hidden p-2.5 sm:p-4">
       {/* Halvleksetiketter ovanför */}
-      <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wide text-slate-500">
+      <div className="mb-1 grid grid-cols-3 text-[9px] uppercase leading-none tracking-wide text-slate-500 sm:text-[10px]">
         <span>1:a halvlek</span>
-        <span>2:a halvlek</span>
-        <span>Tillägg</span>
+        <span className="text-center">2:a halvlek</span>
+        <span className="text-right">Tillägg</span>
       </div>
 
       {/* Intensitetsraden */}
-      <div className="flex items-end gap-0.5">
+      <div className="grid items-end gap-px sm:gap-0.5" style={bucketGridStyle}>
         {buckets.map((b) => (
-          <div key={b.label} className="group relative flex-1">
+          <div key={b.label} className="group relative min-w-0">
             <div
               title={`${b.label} min · ${b.count} mål`}
-              className={`h-9 rounded-[3px] ${cellClass(b.count, max)} transition group-hover:ring-1 group-hover:ring-white/30`}
+              className={`h-6 rounded-[2px] sm:h-9 sm:rounded-[3px] ${cellClass(b.count, max)} transition group-hover:ring-1 group-hover:ring-white/30`}
             />
-            <div className="mt-1 text-center text-[9px] tabular-nums text-slate-600">{b.count > 0 ? b.count : ""}</div>
+            <div className="mt-0.5 min-h-2 text-center text-[8px] leading-none tabular-nums text-slate-600 sm:mt-1 sm:text-[9px]">
+              {b.count > 0 ? b.count : ""}
+            </div>
           </div>
         ))}
       </div>
 
-      {/* Minutaxel: visa var 15:e minut för att hålla det rent */}
-      <div className="mt-0.5 flex gap-0.5 text-[9px] tabular-nums text-slate-500">
-        {buckets.map((b) => (
-          <div key={b.label} className="flex-1 text-center">
-            {b.end === 15 || b.end === 30 || b.end === 45 || b.end === 60 || b.end === 75 || b.end === 90
-              ? b.end
-              : b.label === "90+"
-                ? "90+"
-                : ""}
-          </div>
-        ))}
+      {/* Minutaxel: glesare på mobil, var 15:e minut från sm och uppåt. */}
+      <div className="mt-0.5 grid gap-px text-[8px] leading-none tabular-nums text-slate-500 sm:gap-0.5 sm:text-[9px]" style={bucketGridStyle}>
+        {buckets.map((b) => {
+          const mobileTick = b.end === 30 || b.end === 60 || b.end === 90 || b.label === "90+";
+          const desktopOnlyTick = b.end === 15 || b.end === 45 || b.end === 75;
+
+          return (
+            <div key={b.label} className="min-w-0 text-center">
+              {mobileTick ? (b.label === "90+" ? "90+" : b.end) : ""}
+              <span className="hidden sm:inline">{desktopOnlyTick ? b.end : ""}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Sammanfattning + skala */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[10px] text-slate-400">
-        <span>
+      <div className="mt-2 flex min-w-0 flex-col gap-1 text-[9px] leading-tight text-slate-400 sm:mt-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:gap-y-1 sm:text-[10px]">
+        <span className="min-w-0">
           {total} mål med känd minut
           {peak && (
-            <span className="ml-2 text-slate-300">
+            <span className="block text-slate-300 sm:ml-2 sm:inline">
               · flest i <span className="font-semibold">{peak.label} min</span> ({peak.count})
             </span>
           )}
-          <span className="ml-2 text-slate-600">{matchesWithMinuteData} matcher</span>
+          <span className="block text-slate-600 sm:ml-2 sm:inline">{matchesWithMinuteData} matcher</span>
         </span>
-        <span className="flex items-center gap-1">
+        <span className="flex shrink-0 items-center gap-0.5 sm:gap-1">
           <span className="text-slate-600">Färre</span>
-          <span className="h-3 w-3 rounded-[2px] bg-amber-500/20" />
-          <span className="h-3 w-3 rounded-[2px] bg-amber-500/40" />
-          <span className="h-3 w-3 rounded-[2px] bg-orange-500/55" />
-          <span className="h-3 w-3 rounded-[2px] bg-orange-500/75" />
-          <span className="h-3 w-3 rounded-[2px] bg-red-500/90" />
+          <span className="h-2 w-2 rounded-[2px] bg-amber-500/20 sm:h-3 sm:w-3" />
+          <span className="h-2 w-2 rounded-[2px] bg-amber-500/40 sm:h-3 sm:w-3" />
+          <span className="h-2 w-2 rounded-[2px] bg-orange-500/55 sm:h-3 sm:w-3" />
+          <span className="h-2 w-2 rounded-[2px] bg-orange-500/75 sm:h-3 sm:w-3" />
+          <span className="h-2 w-2 rounded-[2px] bg-red-500/90 sm:h-3 sm:w-3" />
           <span className="text-slate-600">Fler</span>
         </span>
       </div>

@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { scoreGroupMatch } from "@/lib/scoring";
 import { PageHeading } from "@/components/PageHeading";
+import { CountryGroupFilters } from "@/components/CountryGroupFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -108,8 +109,22 @@ function MatchEvents({ det }: { det: MatchDetailsData }) {
   );
 }
 
-export default async function MatcherPage() {
+function paramValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
+}
+
+function normalized(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export default async function MatcherPage({
+  searchParams,
+}: {
+  searchParams?: { q?: string | string[] };
+}) {
   const user = await getCurrentUser();
+  const query = paramValue(searchParams?.q);
+  const q = normalized(query);
 
   const [matches, preds] = await Promise.all([
     prisma.match.findMany({
@@ -126,10 +141,19 @@ export default async function MatcherPage() {
   ]);
 
   const predByNum = new Map(preds.map((p) => [p.match.matchNumber, p]));
+  const filteredMatches = matches.filter((m) => {
+    const queryMatch =
+      !q ||
+      [m.groupId, m.homeTeam?.groupId, m.awayTeam?.groupId, m.homeTeam?.name, m.homeTeam?.code, m.awayTeam?.name, m.awayTeam?.code, m.homeSlot, m.awaySlot]
+        .filter(Boolean)
+        .some((value) => normalized(String(value)).includes(q));
+
+    return queryMatch;
+  });
 
   // Group by date (Swedish timezone)
   const byDate = new Map<string, typeof matches>();
-  for (const m of matches) {
+  for (const m of filteredMatches) {
     const key = m.kickoff.toLocaleDateString("sv-SE", {
       weekday: "short", day: "numeric", month: "short",
       timeZone: "Europe/Stockholm",
@@ -143,6 +167,12 @@ export default async function MatcherPage() {
         title="Matcher"
       >
       <div className="space-y-3">
+        <CountryGroupFilters basePath="/matcher" query={query} count={filteredMatches.length} />
+
+        {filteredMatches.length === 0 && (
+          <p className="card p-4 text-sm text-slate-400">Inga matcher matchar filtret.</p>
+        )}
+
         {[...byDate.entries()].map(([date, ms]) => (
           <section key={date}>
             {/* Sticky date header */}

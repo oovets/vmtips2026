@@ -45,6 +45,22 @@ function timeStr(d: Date): string {
   return d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Stockholm" });
 }
 
+function matchStatusLabel(m: { status: string }, live: EspnMatch | null, scoreText: string | null) {
+  if (scoreText) {
+    return { text: scoreText, className: "bg-white/10 text-slate-100" };
+  }
+  if (live?.state === "in") {
+    return { text: live.clock ?? "Live", className: "bg-red-500/20 text-red-200" };
+  }
+  if (m.status === "LIVE") {
+    return { text: "Live", className: "bg-red-500/20 text-red-200" };
+  }
+  if (m.status === "FINISHED" || live?.state === "post") {
+    return { text: "Slut", className: "bg-white/10 text-slate-300" };
+  }
+  return { text: "Kommande", className: "bg-pitch-500/15 text-pitch-100" };
+}
+
 export default async function SverigePage() {
   const user = await getCurrentUser();
 
@@ -477,64 +493,129 @@ export default async function SverigePage() {
           )}
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
-          {swedishMatches
-            .filter((m) => m.stage === "GROUP")
-            .map((m) => {
-              const live = espnFor(m);
-              const showScore = m.status === "FINISHED" || (live && live.state !== "pre");
-              const hs = live && live.state !== "pre" ? live.homeScore : m.homeScore;
-              const as = live && live.state !== "pre" ? live.awayScore : m.awayScore;
-              const channel = broadcasterFor(m.channel);
-              return (
-                <div key={m.id} className="card p-4">
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-500">
-                    <span className="flex items-center gap-2">
-                      Grupp {SWEDEN_GROUP}
-                      {live?.state === "in" && (
-                        <span className="inline-flex items-center gap-1 rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-bold text-red-200">
-                          {live.clock ?? "Live"}
-                        </span>
-                      )}
-                      {(m.status === "FINISHED" || live?.state === "post") && (
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">Slut</span>
-                      )}
-                    </span>
-                    <span>{dateKey(m.kickoff)} {timeStr(m.kickoff)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                    <span className="min-w-0 truncate">{tag(m.homeTeamId)}</span>
-                    {showScore && hs != null && as != null ? (
-                      <span className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-base font-extrabold tabular-nums">
-                        {hs}–{as}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-slate-500">vs</span>
-                    )}
-                    <span className="min-w-0 truncate text-right">{tag(m.awayTeamId)}</span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-                    <span className="truncate">{m.venue}</span>
-                    {channel && (
-                      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
-                        {channel.domain ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
-                        ) : (
-                          <span>{channel.icon}</span>
+        <div className="card overflow-hidden">
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[820px] text-sm">
+              <thead className="border-b border-white/10 text-[10px] uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium">Datum / tid</th>
+                  <th className="px-3 py-3 text-left font-medium">Grupp</th>
+                  <th className="px-3 py-3 text-left font-medium">Hemma</th>
+                  <th className="px-3 py-3 text-left font-medium">Borta</th>
+                  <th className="px-3 py-3 text-left font-medium">Arena / stad</th>
+                  <th className="px-3 py-3 text-left font-medium">Kanal</th>
+                  {user && <th className="px-3 py-3 text-left font-medium">Ditt tips</th>}
+                  <th className="px-4 py-3 text-right font-medium">Status / resultat</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {swedishMatches
+                  .filter((m) => m.stage === "GROUP")
+                  .map((m) => {
+                    const live = espnFor(m);
+                    const showScore = m.status === "FINISHED" || (live && live.state !== "pre");
+                    const hs = live && live.state !== "pre" ? live.homeScore : m.homeScore;
+                    const awayScore = live && live.state !== "pre" ? live.awayScore : m.awayScore;
+                    const scoreText = showScore && hs != null && awayScore != null ? `${hs}–${awayScore}` : null;
+                    const status = matchStatusLabel(m, live, scoreText);
+                    const channel = broadcasterFor(m.channel);
+                    return (
+                      <tr key={m.id} className="text-slate-300">
+                        <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-400">
+                          {dateKey(m.kickoff)} <span className="text-slate-500">{timeStr(m.kickoff)}</span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">Grupp {SWEDEN_GROUP}</td>
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-100">{tag(m.homeTeamId)}</td>
+                        <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-100">{tag(m.awayTeamId)}</td>
+                        <td className="max-w-[180px] truncate px-3 py-3 text-xs text-slate-400" title={m.venue}>
+                          {m.venue}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3">
+                          {channel ? (
+                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
+                              {channel.domain ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
+                              ) : (
+                                <span>{channel.icon}</span>
+                              )}
+                              {channel.short}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-600">–</span>
+                          )}
+                        </td>
+                        {user && (
+                          <td className="whitespace-nowrap px-3 py-3 text-xs font-semibold tabular-nums text-slate-200">
+                            {myPredText(m.id)}
+                          </td>
                         )}
-                        {channel.short}
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <span className={`inline-flex min-w-14 justify-center rounded px-2 py-0.5 text-xs font-extrabold tabular-nums ${status.className}`}>
+                            {status.text}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="divide-y divide-white/5 md:hidden">
+            {swedishMatches
+              .filter((m) => m.stage === "GROUP")
+              .map((m) => {
+                const live = espnFor(m);
+                const showScore = m.status === "FINISHED" || (live && live.state !== "pre");
+                const hs = live && live.state !== "pre" ? live.homeScore : m.homeScore;
+                const awayScore = live && live.state !== "pre" ? live.awayScore : m.awayScore;
+                const scoreText = showScore && hs != null && awayScore != null ? `${hs}–${awayScore}` : null;
+                const status = matchStatusLabel(m, live, scoreText);
+                const channel = broadcasterFor(m.channel);
+                return (
+                  <div key={m.id} className="p-4">
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Grupp {SWEDEN_GROUP}</div>
+                        <div className="mt-0.5 text-xs tabular-nums text-slate-400">
+                          {dateKey(m.kickoff)} {timeStr(m.kickoff)}
+                        </div>
+                      </div>
+                      <span className={`inline-flex shrink-0 justify-center rounded px-2 py-0.5 text-xs font-extrabold tabular-nums ${status.className}`}>
+                        {status.text}
                       </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                      <span className="min-w-0 truncate">{tag(m.homeTeamId)}</span>
+                      <span className="shrink-0 text-slate-500">vs</span>
+                      <span className="min-w-0 truncate text-right">{tag(m.awayTeamId)}</span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-slate-500">
+                      <span className="truncate">{m.venue}</span>
+                      {channel ? (
+                        <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
+                          {channel.domain ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
+                          ) : (
+                            <span>{channel.icon}</span>
+                          )}
+                          {channel.short}
+                        </span>
+                      ) : (
+                        <span>–</span>
+                      )}
+                    </div>
+                    {user && (
+                      <div className="mt-2 border-t border-white/10 pt-2 text-[11px] text-slate-400">
+                        Ditt tips: <span className="font-semibold tabular-nums text-slate-200">{myPredText(m.id)}</span>
+                      </div>
                     )}
                   </div>
-                  {user && (
-                    <div className="mt-2 border-t border-white/10 pt-2 text-[11px] text-slate-400">
-                      Ditt tips: <span className="font-semibold tabular-nums text-slate-200">{myPredText(m.id)}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+          </div>
         </div>
         </div>
         </SectionHeading>
