@@ -20,7 +20,6 @@ import { SinceLastVisit } from "@/components/SinceLastVisit";
 import { SectionHeading } from "@/components/SectionHeading";
 import { PageHeading } from "@/components/PageHeading";
 import { PlayerSearchCard } from "@/components/PlayerSearchCard";
-import { Klotterplank } from "@/components/Klotterplank";
 import { rankRows } from "@/lib/rank";
 
 export const dynamic = "force-dynamic";
@@ -103,20 +102,20 @@ function parseLiveEvents(details: unknown, homeTag: string, awayTag: string): Li
   return events.sort((a, b) => (a.minute ?? 999) - (b.minute ?? 999));
 }
 
-function liveEventBadge(kind: LiveEventKind): { label: string; className: string } {
+function liveEventBadge(kind: LiveEventKind): { label: string; icon: string; className: string } {
   switch (kind) {
     case "GOAL":
-      return { label: "Mål", className: "bg-pitch-500/20 text-pitch-200" };
+      return { label: "Mål", icon: "⚽", className: "bg-pitch-500/20 text-pitch-200" };
     case "PENALTY":
-      return { label: "Straffmål", className: "bg-pitch-500/20 text-pitch-200" };
+      return { label: "Straffmål", icon: "⚽", className: "bg-pitch-500/20 text-pitch-200" };
     case "OWN":
-      return { label: "Självmål", className: "bg-white/10 text-slate-300" };
+      return { label: "Självmål", icon: "🥅", className: "bg-white/10 text-slate-300" };
     case "YELLOW":
-      return { label: "Gult kort", className: "bg-yellow-500/20 text-yellow-200" };
+      return { label: "Gult kort", icon: "🟨", className: "bg-yellow-500/20 text-yellow-200" };
     case "RED":
-      return { label: "Rött kort", className: "bg-red-500/20 text-red-200" };
+      return { label: "Rött kort", icon: "🟥", className: "bg-red-500/20 text-red-200" };
     case "YELLOW_RED":
-      return { label: "Gult+rött", className: "bg-red-500/20 text-red-200" };
+      return { label: "Gult+rött", icon: "🟨", className: "bg-red-500/20 text-red-200" };
     default: {
       const _exhaustive: never = kind;
       return _exhaustive;
@@ -225,21 +224,6 @@ export default async function DashboardPage() {
     matches.map((m) => ({ kickoff: m.kickoff, venue: m.venue, status: m.status })),
   );
 
-  // ── Klotterplank: senaste meddelandena för en första målning utan flimmer ─────
-  // Den slimmade raden roterar bara de senaste och visar samma i sitt popover,
-  // så en liten seed räcker; klienten hämtar full lista + antal direkt via GET.
-  const guestbookEntries = await prisma.guestbookEntry.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 6,
-    select: { id: true, name: true, message: true, createdAt: true },
-  });
-  const guestbookInitial = guestbookEntries.map((e) => ({
-    id: e.id,
-    name: e.name,
-    message: e.message,
-    createdAt: e.createdAt.toISOString(),
-  }));
-
   // ── Liga-statistik ──────────────────────────────────────────────────────────
   const ranked = leagueUsers.map((u) => ({
     id: u.id,
@@ -276,6 +260,14 @@ export default async function DashboardPage() {
   const teamTag = (id?: string | null) => {
     const t = id ? teamById.get(id) : null;
     return t ? `${t.flag} ${t.code}` : "—";
+  };
+  const teamInfo = (id?: string | null) => {
+    const t = id ? teamById.get(id) : null;
+    return {
+      flag: t?.flag ?? "🏳️",
+      code: t?.code ?? "—",
+      name: t?.name ?? "Okänt lag",
+    };
   };
 
   // ── Liga-konsensus för fokusmatcher (gruppmatcher) ───────────────────────────
@@ -467,7 +459,7 @@ export default async function DashboardPage() {
                 </span>
                 Spelas just nu{live.length > 1 && <span className="text-slate-500">· {live.length} matcher</span>}
               </div>
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {live.map((m) => {
                   const liveEspn = m.homeTeam && m.awayTeam
                     ? lookupEspn(espn, m.homeTeam.code, m.awayTeam.code)
@@ -477,66 +469,127 @@ export default async function DashboardPage() {
                   const hs = useLiveScore ? liveEspn.homeScore : (m.homeScore ?? 0);
                   const as = useLiveScore ? liveEspn.awayScore : (m.awayScore ?? 0);
                   const clock = liveEspn?.state === "in" ? liveEspn.clock : null;
-                  const homeTag = teamTag(m.homeTeamId);
-                  const awayTag = teamTag(m.awayTeamId);
-                  const events = parseLiveEvents(m.details, homeTag, awayTag);
+                  const home = teamInfo(m.homeTeamId);
+                  const away = teamInfo(m.awayTeamId);
+                  const events = parseLiveEvents(m.details, `${home.flag} ${home.code}`, `${away.flag} ${away.code}`);
                   const shootout = ((m.details ?? null) as StoredDetails | null)?.shootout ?? null;
                   const roundLabel = `${STAGE_LABEL[m.stage] ?? m.stage}${m.groupId ? ` ${m.groupId}` : m.round ? ` · ${m.round}` : ""}`;
+                  const odds = liveEspn?.odds ?? null;
+                  const channel = broadcasterFor(m.channel);
                   return (
-                    <div key={m.id} className="overflow-hidden rounded-lg bg-white/5">
-                      <Link
-                        href="/matcher"
-                        className="flex items-center justify-between gap-3 px-3 py-2 hover:bg-white/10"
-                      >
-                        <span className="min-w-0 truncate text-sm font-medium">
-                          {homeTag} <span className="text-slate-500">vs</span> {awayTag}
+                    <div key={m.id} className="overflow-hidden rounded-xl border border-red-500/20 bg-white/[0.04]">
+                      {/* Rad 1: omgång/arena + matchklocka */}
+                      <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-2">
+                        <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {roundLabel} · {m.venue}
                         </span>
-                        <span className="flex shrink-0 items-center gap-2">
-                          {clock && (
-                            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-red-200">
-                              {clock}
+                        {clock && (
+                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-extrabold tabular-nums tracking-wider text-red-200">
+                            <span className="relative flex h-1.5 w-1.5">
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75 motion-reduce:animate-none" />
+                              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-red-500" />
+                            </span>
+                            {clock}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Rad 2: lag + flaggor + stor ställning */}
+                      <Link href="/matcher" className="flex items-center gap-3 px-4 py-4 hover:bg-white/[0.03]">
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2.5 text-right">
+                          <div className="min-w-0">
+                            <div className="truncate text-base font-bold leading-tight text-slate-100">{home.name}</div>
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{home.code}</div>
+                          </div>
+                          <span className="text-3xl leading-none" aria-hidden>{home.flag}</span>
+                        </div>
+                        <div className="shrink-0 rounded-lg bg-red-500/15 px-3 py-1.5 text-3xl font-extrabold leading-none tabular-nums text-red-100">
+                          {hs}<span className="px-1 text-slate-500">–</span>{as}
+                        </div>
+                        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                          <span className="text-3xl leading-none" aria-hidden>{away.flag}</span>
+                          <div className="min-w-0">
+                            <div className="truncate text-base font-bold leading-tight text-slate-100">{away.name}</div>
+                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{away.code}</div>
+                          </div>
+                        </div>
+                      </Link>
+
+                      {/* Rad 3: vinstchans (spelbolagens odds 1/X/2) */}
+                      {odds && (
+                        <div className="px-4 pb-3">
+                          <div className="flex h-2 overflow-hidden rounded-full bg-white/5">
+                            <div className="bg-pitch-500" style={{ width: `${odds.homePct}%` }} />
+                            <div className="bg-white/25" style={{ width: `${odds.drawPct}%` }} />
+                            <div className="bg-flag-500" style={{ width: `${odds.awayPct}%` }} />
+                          </div>
+                          <div className="mt-1 flex items-center justify-between text-[10px] tabular-nums text-slate-400">
+                            <span className="text-pitch-300">{home.code} {odds.homePct}%</span>
+                            <span>Oavgjort {odds.drawPct}%</span>
+                            <span className="text-flag-300">{away.code} {odds.awayPct}%</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Rad 4: matchfakta-chips */}
+                      {(channel || liveEspn?.overUnder != null) && (
+                        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 text-[11px]">
+                          {channel && (
+                            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-semibold ${channel.color}`} title={`Sänds på ${channel.name}`}>
+                              {channel.domain ? (
+                                /* eslint-disable-next-line @next/next/no-img-element */
+                                <img src={broadcasterLogo(channel.domain)} alt="" width={14} height={14} loading="lazy" className="h-3.5 w-3.5 rounded-[2px]" />
+                              ) : (
+                                <span>{channel.icon}</span>
+                              )}
+                              {channel.short}
                             </span>
                           )}
-                          <span className="rounded bg-red-500/20 px-2 py-0.5 text-sm font-bold tabular-nums text-red-200">
-                            {hs}–{as}
-                          </span>
-                        </span>
-                      </Link>
-                      <div className="truncate px-3 pb-2 text-[11px] text-slate-500">
-                        {roundLabel} · {m.venue}
-                      </div>
-                      {(events.length > 0 || shootout) && (
-                        <ul className="space-y-1 border-t border-white/10 px-3 py-2">
-                          {events.map((ev, i) => {
-                            const badge = liveEventBadge(ev.kind);
-                            return (
-                              <li key={i} className="flex items-baseline gap-2 text-xs text-slate-300">
-                                <span className="w-7 shrink-0 text-right tabular-nums text-slate-500">
-                                  {ev.minute != null ? `${ev.minute}'` : ""}
-                                </span>
-                                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge.className}`}>
-                                  {badge.label}
-                                </span>
-                                <span className="min-w-0 truncate">
-                                  <span className="font-semibold text-slate-100">{ev.player}</span>
-                                  {ev.assist && <span className="text-slate-500"> (assist: {ev.assist})</span>}
-                                </span>
-                                <span className="ml-auto shrink-0 text-slate-400">{ev.teamTag}</span>
-                              </li>
-                            );
-                          })}
-                          {shootout && (
-                            <li className="flex items-baseline gap-2 text-xs text-slate-300">
-                              <span className="w-7 shrink-0" />
-                              <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
-                                Straffar
-                              </span>
-                              <span className="font-semibold tabular-nums text-slate-100">
-                                {shootout.home}–{shootout.away}
-                              </span>
-                            </li>
+                          {liveEspn?.overUnder != null && (
+                            <span className="inline-flex items-center gap-1 rounded bg-white/5 px-1.5 py-0.5 tabular-nums text-flag-300">
+                              Mållinje O/U {liveEspn.overUnder}
+                            </span>
                           )}
-                        </ul>
+                        </div>
+                      )}
+
+                      {/* Rad 5: händelser (mål, kort, straffar) */}
+                      {(events.length > 0 || shootout) && (
+                        <div className="border-t border-white/10 px-4 py-3">
+                          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Händelser</div>
+                          <ul className="space-y-1.5">
+                            {events.map((ev, i) => {
+                              const badge = liveEventBadge(ev.kind);
+                              return (
+                                <li key={i} className="flex items-baseline gap-2 text-xs text-slate-300">
+                                  <span className="w-7 shrink-0 text-right tabular-nums text-slate-500">
+                                    {ev.minute != null ? `${ev.minute}'` : ""}
+                                  </span>
+                                  <span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+                                    <span aria-hidden>{badge.icon}</span>
+                                    {badge.label}
+                                  </span>
+                                  <span className="min-w-0 truncate">
+                                    <span className="font-semibold text-slate-100">{ev.player}</span>
+                                    {ev.assist && <span className="text-slate-500"> (assist: {ev.assist})</span>}
+                                  </span>
+                                  <span className="ml-auto shrink-0 text-slate-400">{ev.teamTag}</span>
+                                </li>
+                              );
+                            })}
+                            {shootout && (
+                              <li className="flex items-baseline gap-2 text-xs text-slate-300">
+                                <span className="w-7 shrink-0" />
+                                <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold text-slate-300">
+                                  Straffar
+                                </span>
+                                <span className="font-semibold tabular-nums text-slate-100">
+                                  {shootout.home}–{shootout.away}
+                                </span>
+                              </li>
+                            )}
+                          </ul>
+                        </div>
                       )}
                     </div>
                   );
@@ -549,10 +602,24 @@ export default async function DashboardPage() {
                 {locked ? "Nästa avspark" : "Turneringen startar om"}
               </div>
               <div>
-                <div className="mb-3 text-lg font-bold">
-                  {nextMatch.homeTeam ? teamTag(nextMatch.homeTeamId) : (nextMatch.homeSlot ?? "?")}
-                  <span className="mx-2 text-slate-500">vs</span>
-                  {nextMatch.awayTeam ? teamTag(nextMatch.awayTeamId) : (nextMatch.awaySlot ?? "?")}
+                <div className="mb-3 flex items-center gap-3 text-lg font-bold">
+                  {nextMatch.homeTeam ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="text-2xl leading-none" aria-hidden>{teamInfo(nextMatch.homeTeamId).flag}</span>
+                      {teamInfo(nextMatch.homeTeamId).name}
+                    </span>
+                  ) : (
+                    <span>{nextMatch.homeSlot ?? "?"}</span>
+                  )}
+                  <span className="text-slate-500">vs</span>
+                  {nextMatch.awayTeam ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="text-2xl leading-none" aria-hidden>{teamInfo(nextMatch.awayTeamId).flag}</span>
+                      {teamInfo(nextMatch.awayTeamId).name}
+                    </span>
+                  ) : (
+                    <span>{nextMatch.awaySlot ?? "?"}</span>
+                  )}
                 </div>
                 <Countdown target={(locked ? nextMatch.kickoff : lockAt()).toISOString()} />
                 <p className="mt-2 text-xs text-slate-500">
@@ -565,8 +632,6 @@ export default async function DashboardPage() {
           )}
         </div>
       </section>
-
-      <Klotterplank initialEntries={guestbookInitial} loggedIn={!!user} />
 
       <SinceLastVisit rank={me?.rank ?? null} points={me?.total ?? 0} resultTimes={resultTimes} />
 
