@@ -65,6 +65,7 @@ function flipDetails(d: MatchDetails): MatchDetails {
     goals: d.goals.map((g) => ({ ...g, side: flip(g.side) })),
     cards: d.cards.map((c) => ({ ...c, side: flip(c.side) })),
     shootout: d.shootout ? { home: d.shootout.away, away: d.shootout.home } : null,
+    xg: d.xg ? { home: d.xg.away, away: d.xg.home } : null,
   };
 }
 

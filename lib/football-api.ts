@@ -1,11 +1,39 @@
-// Adapter mot football-data.org (gratisnivå, competition "WC"). Hämtar matcher
-// och normaliserar lagnamn till våra kanoniska namn (lib/teams.ts).
-// Best-effort: admin-override i /admin täcker det API:t missar.
+// Adapter mot ESPN:s öppna API (gratis, ingen nyckel) för matchresultat, målskyttar,
+// kort och xG. Returnerar SAMMA shapes som tidigare (ApiMatch / MatchDetails) så att
+// sync-service och övriga features fungerar oförändrat. Lag matchas via abbreviation
+// (= våra FIFA-koder i lib/teams.ts) -> våra kanoniska lagnamn.
+//
+// fetchTeamForm() ligger kvar på football-data.org (lag-form, utanför ESPN-scope).
+
+import { TEAMS } from "./teams";
+
+const SCOREBOARD = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard";
+const SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary";
+const TOURNAMENT_RANGE = "20260611-20260720";
+
+// Kod -> vårt lagnamn (DB-namn). ESPN abbreviation == vår kod i de allra flesta fall.
+const NAME_BY_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(TEAMS).map(([name, meta]) => [meta.code, name]),
+);
+// ESPN-abbreviation -> vår kod, för ev. avvikelser. Fylls på vid behov.
+const ESPN_CODE_ALIASES: Record<string, string> = {};
+
+function espnTeamName(abbr: string | undefined): string | null {
+  if (!abbr) return null;
+  const code = ESPN_CODE_ALIASES[abbr] ?? abbr;
+  return NAME_BY_CODE[code] ?? null;
+}
+
+function parseMinute(s: string | undefined | null): number | null {
+  if (!s) return null;
+  const m = s.match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
 
 export interface ApiMatch {
   apiId: string;
   utcDate: string;
-  status: string; // SCHEDULED | TIMED | IN_PLAY | PAUSED | FINISHED ...
+  status: string; // SCHEDULED | IN_PLAY | FINISHED
   homeName: string | null;
   awayName: string | null;
   homeScore: number | null;
@@ -13,7 +41,7 @@ export interface ApiMatch {
   winner: "HOME" | "AWAY" | "DRAW" | null;
 }
 
-// football-data.org-namn -> våra namn (i lib/teams.ts)
+// football-data.org-namn -> våra namn (används av fetchTeamForm m.fl.)
 const ALIASES: Record<string, string> = {
   Czechia: "Czech Republic",
   Türkiye: "Turkey",
@@ -36,19 +64,15 @@ export function normalizeTeamName(name: string | null): string | null {
 }
 
 export interface FormEntry {
-  opp: string;    // motståndarens kod
+  opp: string;
   oppFlag: string;
-  score: string;  // "2-1"
+  score: string;
   result: "W" | "D" | "L";
-  date: string;   // "2026-03-25"
+  date: string;
 }
 
-// Hämtar senaste n avslutade matcher för ett lag via football-data.org.
-// Returnerar en lista med FormEntry sorterad nyast–äldst.
-export async function fetchTeamForm(
-  teamId: number,
-  limit = 5,
-): Promise<FormEntry[]> {
+// Lag-form via football-data.org (utanför ESPN-scope — kräver FOOTBALL_DATA_API_KEY).
+export async function fetchTeamForm(teamId: number, limit = 5): Promise<FormEntry[]> {
   const key = process.env.FOOTBALL_DATA_API_KEY;
   if (!key) throw new Error("FOOTBALL_DATA_API_KEY saknas");
 
@@ -57,7 +81,7 @@ export async function fetchTeamForm(
     { headers: { "X-Auth-Token": key }, cache: "no-store" },
   );
   if (!res.ok) return [];
-  const data = await res.json() as { matches: any[] };
+  const data = (await res.json()) as { matches: any[] };
   const matches = (data.matches ?? [])
     .filter((m: any) => m.status === "FINISHED")
     .slice(-limit)
@@ -70,8 +94,7 @@ export async function fetchTeamForm(
     const as_: number = m.score?.fullTime?.away ?? 0;
     const myScore = isHome ? hs : as_;
     const oppScore = isHome ? as_ : hs;
-    const result: "W" | "D" | "L" =
-      myScore > oppScore ? "W" : myScore === oppScore ? "D" : "L";
+    const result: "W" | "D" | "L" = myScore > oppScore ? "W" : myScore === oppScore ? "D" : "L";
     return {
       opp: oppTeam?.tla ?? oppTeam?.shortName ?? "?",
       oppFlag: "",
@@ -82,17 +105,13 @@ export async function fetchTeamForm(
   });
 }
 
-// ── Matchdetaljer (målgörare, kort, straffar) ────────────────────────────────
-// football-data.org gratisnivå saknar dessa. Sätt MATCH_DETAIL_ENDPOINT till en
-// URL-mall med {id} (fixture-id) mot ett API som har detaljnivån. Default pekar på
-// football-data.org:s match-endpoint (events fylls i på betald nivå). Auth-headern
-// och nyckeln kan styras separat för ett annat API.
+// ── Matchdetaljer (målgörare, kort, straffar, xG) från ESPN ───────────────────
 
 export interface MatchGoal {
   side: "HOME" | "AWAY"; // relativt API-svarets hemma/borta
   player: string;
   minute: number | null;
-  type: string | null; // REGULAR | OWN | PENALTY ...
+  type: string | null; // REGULAR | OWN | PENALTY
   assist: string | null;
 }
 export interface MatchCard {
@@ -105,103 +124,141 @@ export interface MatchDetails {
   goals: MatchGoal[];
   cards: MatchCard[];
   shootout: { home: number; away: number } | null;
+  xg?: { home: number | null; away: number | null } | null; // best-effort, null om ESPN saknar det
 }
 
-// Som MatchDetails men inkluderar API-svarets lagnamn (normaliserade) så att
-// anroparen kan upptäcka om vår match är "flippad" mot API:t och rätta sidorna.
 export interface FetchedMatchDetails extends MatchDetails {
   apiHomeName: string | null;
   apiAwayName: string | null;
 }
 
-function parseMatchDetails(raw: any): FetchedMatchDetails {
-  const m = raw?.match ?? raw ?? {};
-  const homeId = m.homeTeam?.id;
-  const sideOf = (teamId: unknown): "HOME" | "AWAY" =>
-    teamId != null && teamId === homeId ? "HOME" : "AWAY";
-
-  const goals: MatchGoal[] = Array.isArray(m.goals)
-    ? m.goals.map((g: any) => ({
-        side: sideOf(g.team?.id),
-        player: g.scorer?.name ?? g.player?.name ?? "?",
-        minute: typeof g.minute === "number" ? g.minute : null,
-        type: g.type ?? null,
-        assist: g.assist?.name ?? null,
-      }))
-    : [];
-
-  const cards: MatchCard[] = Array.isArray(m.bookings)
-    ? m.bookings.map((c: any) => ({
-        side: sideOf(c.team?.id),
-        player: c.player?.name ?? "?",
-        minute: typeof c.minute === "number" ? c.minute : null,
-        card: c.card === "RED" || c.card === "YELLOW_RED" ? c.card : "YELLOW",
-      }))
-    : [];
-
-  const pen = m.score?.penalties;
-  const shootout =
-    pen && (pen.home != null || pen.away != null)
-      ? { home: pen.home ?? 0, away: pen.away ?? 0 }
-      : null;
-
-  return {
-    goals,
-    cards,
-    shootout,
-    apiHomeName: normalizeTeamName(m.homeTeam?.name ?? null),
-    apiAwayName: normalizeTeamName(m.awayTeam?.name ?? null),
+function extractXg(
+  summary: any,
+  homeId: string | undefined,
+  awayId: string | undefined,
+): { home: number | null; away: number | null } | null {
+  const teams: any[] = summary?.boxscore?.teams ?? [];
+  const valFor = (tid: string | undefined): number | null => {
+    if (!tid) return null;
+    const t = teams.find((x) => String(x.team?.id) === String(tid));
+    const stat = (t?.statistics ?? []).find(
+      (x: any) => /expectedgoals/i.test(x.name ?? "") || /expected goals/i.test(x.displayName ?? x.label ?? ""),
+    );
+    if (!stat) return null;
+    const v = parseFloat(stat.displayValue ?? stat.value);
+    return Number.isFinite(v) ? v : null;
   };
+  const home = valFor(homeId);
+  const away = valFor(awayId);
+  return home != null || away != null ? { home, away } : null;
 }
 
-// Hämtar detaljer för en match via fixture-id. Returnerar null vid nätverks-/HTTP-fel
-// (så anroparen kan försöka igen senare); ett lyckat svar utan events ger tomma listor.
+// Hämtar detaljer för en match via ESPN summary (event-id = vårt apiId).
 export async function fetchMatchDetails(apiId: string): Promise<FetchedMatchDetails | null> {
-  const template =
-    process.env.MATCH_DETAIL_ENDPOINT ?? "https://api.football-data.org/v4/matches/{id}";
-  const url = template.replace("{id}", encodeURIComponent(apiId));
-  const headerName = process.env.MATCH_DETAIL_AUTH_HEADER ?? "X-Auth-Token";
-  const key = process.env.MATCH_DETAIL_API_KEY ?? process.env.FOOTBALL_DATA_API_KEY;
-
-  const headers: Record<string, string> = {};
-  if (key) headers[headerName] = key;
-
   let res: Response;
   try {
-    res = await fetch(url, { headers, cache: "no-store" });
+    res = await fetch(`${SUMMARY}?event=${encodeURIComponent(apiId)}`, { cache: "no-store" });
   } catch {
     return null;
   }
   if (!res.ok) return null;
 
+  let s: any;
   try {
-    return parseMatchDetails(await res.json());
+    s = await res.json();
   } catch {
     return null;
   }
+
+  const comp = s?.header?.competitions?.[0];
+  const home = comp?.competitors?.find((c: any) => c.homeAway === "home");
+  const away = comp?.competitors?.find((c: any) => c.homeAway === "away");
+  const homeId = home?.team?.id ? String(home.team.id) : undefined;
+  const sideOf = (teamId: unknown): "HOME" | "AWAY" =>
+    teamId != null && String(teamId) === homeId ? "HOME" : "AWAY";
+
+  const events: any[] = Array.isArray(s?.keyEvents) ? s.keyEvents : [];
+
+  const goals: MatchGoal[] = events
+    .filter((e) => e?.scoringPlay)
+    .map((e) => {
+      const tt = `${e.type?.text ?? ""} ${e.text ?? ""}`.toLowerCase();
+      const type = /own goal/.test(tt) ? "OWN" : /penalt/.test(tt) ? "PENALTY" : "REGULAR";
+      return {
+        side: sideOf(e.team?.id),
+        player: e.participants?.[0]?.athlete?.displayName ?? "?",
+        minute: parseMinute(e.clock?.displayValue),
+        type,
+        assist: e.participants?.[1]?.athlete?.displayName ?? null,
+      };
+    });
+
+  const cards: MatchCard[] = events
+    .filter((e) => /card/i.test(e?.type?.text ?? ""))
+    .map((e) => {
+      const t = (e.type?.text ?? "").toLowerCase();
+      const card: MatchCard["card"] = /red/.test(t) ? "RED" : "YELLOW";
+      return {
+        side: sideOf(e.team?.id),
+        player: e.participants?.[0]?.athlete?.displayName ?? "?",
+        minute: parseMinute(e.clock?.displayValue),
+        card,
+      };
+    });
+
+  const hShoot = home?.shootoutScore;
+  const aShoot = away?.shootoutScore;
+  const shootout =
+    hShoot != null || aShoot != null ? { home: Number(hShoot ?? 0), away: Number(aShoot ?? 0) } : null;
+
+  return {
+    goals,
+    cards,
+    shootout,
+    xg: extractXg(s, homeId, away?.team?.id ? String(away.team.id) : undefined),
+    apiHomeName: espnTeamName(home?.team?.abbreviation),
+    apiAwayName: espnTeamName(away?.team?.abbreviation),
+  };
 }
 
+// Hämtar alla VM-matcher (hela turneringsintervallet i ett anrop) från ESPN.
 export async function fetchWorldCupMatches(): Promise<ApiMatch[]> {
-  const key = process.env.FOOTBALL_DATA_API_KEY;
-  if (!key) throw new Error("FOOTBALL_DATA_API_KEY saknas");
+  const res = await fetch(`${SCOREBOARD}?dates=${TOURNAMENT_RANGE}&limit=400`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`ESPN svarade ${res.status}`);
+  const data = (await res.json()) as { events?: any[] };
 
-  const res = await fetch(
-    "https://api.football-data.org/v4/competitions/WC/matches",
-    { headers: { "X-Auth-Token": key }, cache: "no-store" },
-  );
-  if (!res.ok) {
-    throw new Error(`football-data.org svarade ${res.status}`);
+  const out: ApiMatch[] = [];
+  for (const ev of data.events ?? []) {
+    const comp = ev?.competitions?.[0];
+    if (!comp) continue;
+    const home = comp.competitors?.find((c: any) => c.homeAway === "home");
+    const away = comp.competitors?.find((c: any) => c.homeAway === "away");
+    if (!home || !away) continue;
+
+    const state = comp.status?.type?.state;
+    const status = state === "post" ? "FINISHED" : state === "in" ? "IN_PLAY" : "SCHEDULED";
+    // Ospelade matcher: inga mål (ESPN visar "0" före avspark — undvik 0–0 i DB).
+    const live = state === "post" || state === "in";
+    const homeScore = live && home.score != null ? parseInt(home.score, 10) : null;
+    const awayScore = live && away.score != null ? parseInt(away.score, 10) : null;
+
+    let winner: ApiMatch["winner"] = null;
+    if (status === "FINISHED") {
+      if (home.winner) winner = "HOME";
+      else if (away.winner) winner = "AWAY";
+      else if (homeScore != null && awayScore != null && homeScore === awayScore) winner = "DRAW";
+    }
+
+    out.push({
+      apiId: String(ev.id),
+      utcDate: ev.date,
+      status,
+      homeName: espnTeamName(home.team?.abbreviation),
+      awayName: espnTeamName(away.team?.abbreviation),
+      homeScore,
+      awayScore,
+      winner,
+    });
   }
-  const data = (await res.json()) as { matches: any[] };
-
-  return (data.matches ?? []).map((m) => ({
-    apiId: String(m.id),
-    utcDate: m.utcDate,
-    status: m.status,
-    homeName: normalizeTeamName(m.homeTeam?.name ?? null),
-    awayName: normalizeTeamName(m.awayTeam?.name ?? null),
-    homeScore: m.score?.fullTime?.home ?? null,
-    awayScore: m.score?.fullTime?.away ?? null,
-    winner: m.score?.winner ?? null,
-  }));
+  return out;
 }

@@ -37,6 +37,7 @@ model League {
   joinCode    String      @unique
   tippingMode TippingMode @default(EXACT)
   users       User[]
+  quizzes     Quiz[]
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 }
@@ -62,6 +63,9 @@ model User {
   score              Score?
   sessionLogs        SessionLog[]
   interactionEvents  InteractionEvent[]
+  quizzesCreated     Quiz[]              @relation("QuizCreator")
+  quizzesOpponent    Quiz[]              @relation("QuizOpponent")
+  quizResults        QuizResult[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -274,4 +278,47 @@ model InteractionEvent {
   @@index([sessionId])
   @@index([userId])
   @@index([createdAt])
+}
+
+enum QuizKind {
+  DAILY
+  DUEL
+}
+
+// En quiz-instans (frågeset). questions innehåller FULLA frågor med facit — serveras aldrig rått.
+model Quiz {
+  id          String       @id @default(uuid())
+  league      League       @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  leagueId    String
+  kind        QuizKind
+  seed        String
+  questions   Json
+  createdBy   User?        @relation("QuizCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+  opponent    User?        @relation("QuizOpponent", fields: [opponentId], references: [id], onDelete: SetNull)
+  opponentId  String?
+  dayKey      String? // Stockholm-datum för DAILY (null för DUEL)
+  results     QuizResult[]
+  createdAt   DateTime     @default(now())
+
+  @@unique([leagueId, kind, dayKey])
+}
+
+// En spelares resultat på en quiz. Varje spelare spelar en given quiz exakt en gång.
+model QuizResult {
+  id           String   @id @default(uuid())
+  quiz         Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  quizId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  score        Int
+  correctCount Int
+  totalMs      Int
+  // Anti-cheat: hur många gånger spelaren lämnade rutan (tabbade/bytte fönster)
+  // och total tid borta. Visas som ⚠️-flagga för ligan.
+  awayCount    Int      @default(0)
+  awayMs       Int      @default(0)
+  finishedAt   DateTime @default(now())
+
+  @@unique([quizId, userId])
 }

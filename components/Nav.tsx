@@ -251,6 +251,16 @@ function IconChevronRight() {
   );
 }
 
+function IconQuiz() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="10" cy="10" r="7" />
+      <circle cx="10" cy="10" r="3.5" />
+      <circle cx="10" cy="10" r="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+
 // `auth: true` = kräver inloggning (sidan skickar utloggade till startsidan).
 // Full uppsättning länkar – används av desktop-top-navens (har gott om plats).
 const baseLinks = [
@@ -261,6 +271,7 @@ const baseLinks = [
   { href: "/matcher",       label: "Matcher",   icon: <IconMatches />,      auth: false },
   { href: "/grupper",       label: "Grupper",   icon: <IconGroups />,       auth: false },
   { href: "/vm-statistik",  label: "VM-statistik", icon: <IconStats />,     auth: false },
+  { href: "/quiz",          label: "Quiz",      icon: <IconQuiz />,         auth: true  },
 ];
 
 // Mobil bottenmeny: exakt 5 fasta flikar oavsett auth/admin. Den sista ("Mer")
@@ -270,6 +281,7 @@ const bottomTabs = [
   { href: "/matcher",     label: "Matcher",   icon: <IconMatches />,     auth: false },
   { href: "/mitt-lag",    label: "Mitt tips", icon: <IconTips />,        auth: true  },
   { href: "/grupper",     label: "Grupper",   icon: <IconGroups />,      auth: false },
+  { href: "/quiz",        label: "Quiz",      icon: <IconQuiz />,        auth: true  },
 ];
 
 // Sekundära destinationer i "Mer"-sheeten (mobil).
@@ -526,7 +538,7 @@ export function Nav({ user, isAdminLoggedIn, allLeagues, weather, needsSubmit }:
         aria-label="Huvudnavigering"
         className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-night-950/95 backdrop-blur sm:hidden"
       >
-        <div className="mx-auto grid max-w-6xl grid-cols-5">
+        <div className="mx-auto grid max-w-6xl grid-cols-6">
           {bottomTabs.map((t) => {
             const active = isActive(t.href);
             const showDot = needsSubmit && t.href === SUBMIT_HREF;
